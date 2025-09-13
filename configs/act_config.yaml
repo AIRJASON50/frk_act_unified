@@ -1,0 +1,25 @@
+# configs/act_config.yaml - 原版 ACT 超参数配置
+act_params:
+  hidden_dim: 512
+  chunk_size: 100  
+  kl_weight: 10.0
+  dim_feedforward: 3200
+  batch_size: 8
+  num_epochs: 2000
+  lr: 1e-5
+  seed: 0
+
+# 模型架构参数
+model_params:
+  backbone: "resnet18"
+  enc_layers: 4
+  dec_layers: 7
+  nheads: 8
+  camera_names: ["cam_high", "cam_low"]
+  
+# 训练参数
+training_params:
+  temporal_agg: true
+  camera_input: true
+  num_queries: 100
+  no_encoder: false

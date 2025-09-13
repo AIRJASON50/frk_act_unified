@@ -1,0 +1,20 @@
+项目目标：
+1. 实现一个基于act的操作学习系统，参考：
+@act （/home/wujielin/CascadeProjects/projects/openSource/示教学习/act/aloha/act）
+@Learning%20Fine-Grained%20Bimanual%20Manipulation%20with%20Low-Cost%20Hardware.md（/home/wujielin/CascadeProjects/projects/openSource/示教学习/act/aloha/act/Learning%20Fine-Grained%20Bimanual%20Manipulation%20with%20Low-Cost%20Hardware.md）
+不同的是我的系统需要分为服务器端和客户端两部分，而原文是建立在一台机子上进行数据采集、处理和推理的，
+所以我需要把他作为两台机子进行，一台是服务器@frk_act_server 一台是客户端@frk_act_client ，分别具备不同的功能
+
+@frk_act_server 在这个程序中，是部署在服务器端的，需要完成的功能包括：
+1. 仿真数据生成：在仿真层面进行数据生成，参考@act原始开源中的数据生成部分，利用程序生成仿真数据给后续训练使用；
+2. 真实数据采集：从客户端接收真实数据（机械臂实际运动和其他多模态数据）；
+3. 模型训练：使用生成的数据或者采集的真实数据进行模型训练，训练好的模型保存到服务器端；
+4. 模型提供：将训练好的模型提供给客户端使用；
+
+@frk_act_client 在这个程序中，是部署在客户端的，需要完成的功能包括：
+1. 数据采集和上传：在真机实验中，采集机械臂实际运动和其他多模态数据，并将采集到的数据上传到服务器端；（仿真时，这个数据来自于服务器端的数据生成）
+2. 数据接收和推理：从服务器端接收推理得到的机械臂控制命令，并使用这些命令控制机械臂；
+
+上述两个机器通过网络通信来传输信息；
+
+训练的数据和模型等数据都存储在/home/wujielin/CascadeProjects/data中；

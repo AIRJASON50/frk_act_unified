@@ -1,0 +1,76 @@
+# Franka ACT 分布式训练系统依赖
+# 基于原版 ACT + SERL 架构 + AgentLace 分布式框架
+
+# 深度学习框架
+torch>=1.9.0
+torchvision>=0.10.0
+numpy>=1.21.0
+
+# 机器人学习
+gym>=0.21.0
+stable-baselines3>=1.5.0
+
+# 计算机视觉
+opencv-python>=4.5.0
+Pillow>=8.3.0
+imageio>=2.9.0
+
+# 数据处理
+pandas>=1.3.0
+h5py>=3.1.0
+scipy>=1.7.0
+
+# Web服务和网络通信
+flask>=2.0.0
+requests>=2.25.0
+websockets>=10.0
+
+# 配置和工具
+pyyaml>=5.4.0
+tqdm>=4.62.0
+matplotlib>=3.4.0
+seaborn>=0.11.0
+
+# ROS相关（如果系统中没有）
+rospy
+sensor_msgs
+geometry_msgs
+std_msgs
+
+# AgentLace分布式框架（从源码安装）
+# agentlace  # 通过 pip install -e ./agentlace 安装
+
+# SERL相关依赖
+# serl_robot_infra  # 已集成到项目中
+
+# ACT特定依赖
+transformers>=4.12.0
+einops>=0.4.0
+
+# 开发和调试工具
+ipython>=7.25.0
+jupyter>=1.0.0
+tensorboard>=2.7.0
+
+# 系统监控
+psutil>=5.8.0
+GPUtil>=1.4.0
+
+# 多进程和并行
+multiprocessing-logging>=0.3.0
+
+# 网络和通信协议
+zmq>=0.0.0  # pyzmq
+protobuf>=3.17.0
+
+# 数据序列化
+pickle5>=0.0.11
+cloudpickle>=2.0.0
+
+# 时间同步和性能分析
+time
+threading
+asyncio
+
+# 日志记录
+loguru>=0.5.0
