@@ -1,6 +1,0 @@
-[submodule "franka_ros"]
-	path = franka_ros
-	url = https://github.com/frankaemika/franka_ros.git
-[submodule "agentlace"]
-	path = agentlace
-	url = https://github.com/youliangtan/agentlace.git
