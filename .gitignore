@@ -146,6 +146,7 @@ datasets/
 *.csv
 *.json
 *.xml
+!package.xml
 *.parquet
 
 # Temporary files
