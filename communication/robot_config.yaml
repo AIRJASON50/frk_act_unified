@@ -1,0 +1,138 @@
+# ACT分布式推理系统配置文件
+# 版本: v2.0 - AgentLace协议
+
+# ============================================================================
+# 网络通信配置 (AgentLace协议)
+# ============================================================================
+network:
+  # 服务器配置
+  server_ip: "10.16.49.124"          # GPU服务器IP地址
+  server_port: 5555                  # AgentLace主通信端口(REQ-REP)
+  broadcast_port: 5556               # AgentLace广播端口(PUB-SUB)
+  
+  # 协议配置
+  protocol: "agentlace"              # 通信协议类型
+  protocol_version: "0.0.2"         # AgentLace协议版本
+  
+  # 网络优化
+  timeout: 30                        # 连接超时(秒)
+  retry_attempts: 3                  # 重试次数
+  compression: true                  # 启用数据压缩
+  
+# ============================================================================
+# ACT模型配置
+# ============================================================================
+act_model:
+  # 模型参数 (与训练时保持一致)
+  hidden_dim: 512                    # 模型隐藏层维度
+  chunk_size: 100                    # 动作序列长度(步)
+  kl_weight: 10                      # KL散度权重
+  dim_feedforward: 3200              # 前馈层维度
+  num_queries: 100                   # Query数量
+  
+  # 网络结构
+  backbone: "resnet18"               # 视觉编码器
+  enc_layers: 4                      # 编码器层数
+  dec_layers: 7                      # 解码器层数
+  nheads: 8                         # 注意力头数
+  
+  # 学习参数
+  lr: 1e-5                          # 学习率
+  lr_backbone: 1e-5                 # 视觉编码器学习率
+  batch_size: 8                     # 训练批次大小
+  
+# ============================================================================
+# 机器人配置 (Franka Panda)
+# ============================================================================
+robot:
+  # 硬件配置
+  robot_type: "franka"              # 机器人类型
+  robot_ip: "172.16.0.2"           # 机器人控制器IP
+  gripper_type: "Franka"           # 夹爪类型
+  
+  # 控制参数
+  control_freq: 50                  # 控制频率(Hz)
+  dt: 0.02                         # 控制间隔(秒)
+  
+  # 状态维度
+  state_dim: 8                     # 状态维度(7关节+1夹爪)
+  action_dim: 8                    # 动作维度
+  
+  # 关节限制 (弧度)
+  joint_limits:
+    joint1: [-2.8973, 2.8973]
+    joint2: [-1.7628, 1.7628]
+    joint3: [-2.8973, 2.8973]
+    joint4: [-3.0718, -0.0698]
+    joint5: [-2.8973, 2.8973]
+    joint6: [-0.0175, 3.7525]
+    joint7: [-2.8973, 2.8973]
+    gripper: [0.0, 0.08]            # 夹爪开度(米)
+
+# ============================================================================
+# 相机配置
+# ============================================================================
+camera:
+  # 图像参数
+  image_height: 480                 # 图像高度
+  image_width: 640                  # 图像宽度
+  image_channels: 3                 # 颜色通道数
+  
+  # 压缩设置
+  jpeg_quality: 85                  # JPEG压缩质量(%)
+  max_image_size: 100               # 最大图像大小(KB)
+  
+  # ROS话题 (仅客户端使用)
+  topics:
+    cam_high: "/camera/color/image_raw"
+    cam_low: "/wrist_camera/color/image_raw"
+  
+  # 相机名称映射
+  camera_names: ["top"]             # ACT模型使用的相机名称
+
+# ============================================================================
+# 服务器优化配置 (RTX 4090)
+# ============================================================================
+server_optimization:
+  # GPU配置
+  gpu_device: "0"                   # 使用的GPU设备ID
+  max_gpu_memory: 24                # GPU内存大小(GB)
+  
+  # 推理优化
+  max_batch_size: 16                # 最大并发请求数
+  inference_workers: 4              # 推理工作进程数
+  
+  # 内存管理
+  pytorch_cuda_alloc_conf: "max_split_size_mb:1024"
+  cuda_launch_blocking: false       # 异步执行优化
+
+# ============================================================================
+# 客户端配置
+# ============================================================================
+client:
+  # 仿真配置
+  use_simulation: true              # 是否使用仿真
+  gazebo_world: "franka_pick_place" # Gazebo世界文件
+  
+  # 数据收集
+  episode_length: 400               # 单轨迹最大长度
+  data_format: "hdf5"              # 数据存储格式
+  
+  # ROS配置
+  ros_master_port: 11311           # ROS Master端口
+  
+# ============================================================================
+# 路径配置
+# ============================================================================
+paths:
+  # 模型路径
+  model_dir: "/home/wujielin/CascadeProjects/data/act_training/models/checkpoints/franka_pick_place"
+  
+  # 数据路径
+  data_dir: "/home/wujielin/CascadeProjects/data/act_training/datasets"
+  
+  # 日志路径
+  log_dir: "logs"
+  
+  # 配置文件路径
+  config_dir: "communication"

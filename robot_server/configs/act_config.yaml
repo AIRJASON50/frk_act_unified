@@ -15,7 +15,9 @@ model_params:
   enc_layers: 4
   dec_layers: 7
   nheads: 8
-  camera_names: ["cam_high", "cam_low"]
+  camera_names: ["top"]  # 使用单相机：top camera
+  state_dim: 8  # 单臂Franka: 7关节 + 1夹爪
+  action_dim: 8  # 动作空间维度同状态空间
   
 # 训练参数
 training_params:

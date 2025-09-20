@@ -1,8 +1,61 @@
+#!/usr/bin/env python3
+"""
+ACT Policy Classes - Franka Single Arm Robot Learning
+
+================================================================================
+FILE DESCRIPTION:
+本文件定义了ACT训练的策略类，包括ACTPolicy和CNNMLPPolicy。
+这些类封装了模型的前向传播、损失计算和优化器管理。
+
+MAIN FUNCTIONALITY:
+1. 策略模型的高级封装
+2. 训练时的损失计算
+3. 推理时的动作预测
+4. 优化器管理和更新
+
+KEY COMPONENTS:
+- ACTPolicy: 基于Transformer+VAE的主要策略
+- CNNMLPPolicy: 基于CNN+MLP的基线策略
+- 损失函数: L1重建损失 + KL散度损失
+- 图像预处理: ImageNet归一化
+
+TRAINING WORKFLOW:
+输入: qpos(8维) + RGB图像 + 真实动作序列
+处理: 前向传播 → 损失计算 → 梯度更新
+输出: 损失字典 + 预测动作
+
+INFERENCE WORKFLOW:
+输入: qpos(8维) + RGB图像
+处理: 前向传播 → 动作预测
+输出: 100步动作序列
+
+INPUT SPECIFICATION:
+- qpos: (batch, 8) - Franka关节状态
+- image: (batch, cameras, 3, H, W) - RGB图像
+- actions: (batch, 100, 8) - 动作序列（训练时）
+- is_pad: (batch, 100) - 填充掩码（训练时）
+
+OUTPUT SPECIFICATION:
+训练时: 损失字典 {"l1": 重建损失, "kl": KL散度, "loss": 总损失}
+推理时: (batch, 100, 8) 动作预测
+
+FRANKA ADAPTATION:
+✅ 8维状态/动作空间
+✅ 100步动作chunk
+✅ 单相机图像输入
+✅ ImageNet预训练权重利用
+
+AUTHORS: Tony Z. Zhao (Original ACT), Franka Team (Single Arm Adaptation)
+VERSION: v1.0 - Franka Single Arm Specialized
+LAST UPDATED: 2025-09-20
+================================================================================
+"""
+
 import torch.nn as nn
 from torch.nn import functional as F
 import torchvision.transforms as transforms
 
-from detr.main import build_ACT_model_and_optimizer, build_CNNMLP_model_and_optimizer
+from .detr.main import build_ACT_model_and_optimizer, build_CNNMLP_model_and_optimizer
 import IPython
 e = IPython.embed
 

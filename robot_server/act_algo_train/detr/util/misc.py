@@ -1,9 +1,43 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+#!/usr/bin/env python3
 """
-Misc functions, including distributed helpers.
+DETR Utility Functions - Franka ACT Adaptation
 
-Mostly copy-paste from torchvision references.
+================================================================================
+FILE DESCRIPTION:
+本文件包含DETR模型的辅助工具函数，主要用于分布式训练、性能监控和张量操作。
+这些函数为ACT训练提供了基础设施支持，包括指标统计、分布式通信和内存管理。
+
+MAIN FUNCTIONALITY:
+1. 性能监控和指标统计
+2. 分布式训练辅助函数
+3. 张量操作和内存管理
+4. 训练过程中的日志记录
+
+KEY COMPONENTS:
+- SmoothedValue: 滑动窗口数值统计类
+- MetricLogger: 训练指标记录器
+- NestedTensor: 批量处理不同尺寸张量的容器
+- 分布式训练辅助函数: setup_for_distributed, is_main_process等
+- 张量操作函数: collate_fn, interpolate等
+
+INPUT/OUTPUT:
+输入: 训练过程中的损失值、指标、张量等
+输出: 统计信息、格式化的日志、处理后的张量
+
+FRANKA ADAPTATION:
+✅ 通用工具函数，无需特殊适配
+✅ 支持单GPU和多GPU训练
+✅ 适用于Franka单臂ACT训练场景
+
+USAGE IN ACT:
+- 训练损失和指标的统计
+- 模型性能监控
+- 分布式训练支持（如果需要）
+- 批量数据的高效处理
+================================================================================
 """
+
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import os
 import subprocess
 import time

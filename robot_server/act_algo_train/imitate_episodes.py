@@ -1,3 +1,65 @@
+#!/usr/bin/env python3
+"""
+ACT Training Script - Franka Single Arm Imitation Learning
+
+================================================================================
+FILE DESCRIPTION:
+本文件是Franka单臂ACT训练的主要脚本，实现了完整的模仿学习训练流程。
+它负责数据加载、模型训练、验证和模型保存等核心功能。
+
+MAIN FUNCTIONALITY:
+1. 数据集加载和预处理
+2. ACT/CNN-MLP模型训练
+3. 训练过程监控和日志记录
+4. 模型验证和性能评估
+5. 检查点保存和恢复
+
+KEY COMPONENTS:
+- main(): 主训练函数
+- train_bc(): 行为克隆训练循环
+- eval_bc(): 模型评估函数
+- forward_pass(): 前向传播和损失计算
+
+TRAINING PIPELINE:
+输入: 演示数据集 + 训练配置
+处理流程:
+  1. 加载Franka演示数据
+  2. 构建ACT模型
+  3. 训练循环（前向传播→损失计算→反向传播）
+  4. 定期验证和保存
+输出: 训练好的ACT模型
+
+INPUT SPECIFICATION:
+- 数据集: HDF5格式的episode文件
+- 观测: qpos(8维) + RGB图像(480×640×3)  
+- 动作: 8维连续动作序列（100步chunk）
+- 配置: 训练超参数字典
+
+OUTPUT SPECIFICATION:
+- 模型检查点: policy_epoch_*.ckpt
+- 训练日志: 损失曲线和指标
+- 数据统计: dataset_stats.pkl
+
+FRANKA ADAPTATION:
+✅ 8维状态/动作空间
+✅ 单相机视觉输入
+✅ 100步动作chunk预测
+✅ 支持仿真和真实机器人
+
+USAGE:
+python imitate_episodes.py \\
+    --task_name franka_pick_place \\
+    --ckpt_dir ../models/franka_test \\
+    --policy_class ACT \\
+    --batch_size 8 \\
+    --num_epochs 500
+
+AUTHORS: Tony Z. Zhao (Original ACT), Franka Team (Single Arm Adaptation)
+VERSION: v1.0 - Franka Single Arm Specialized
+LAST UPDATED: 2025-09-20
+================================================================================
+"""
+
 import torch
 import numpy as np
 import os
@@ -8,15 +70,11 @@ from copy import deepcopy
 from tqdm import tqdm
 from einops import rearrange
 
-from constants import DT
-from constants import PUPPET_GRIPPER_JOINT_OPEN
-from utils import load_data # data functions
-from utils import sample_box_pose, sample_insertion_pose # robot functions
-from utils import compute_dict_mean, set_seed, detach_dict # helper functions
-from policy import ACTPolicy, CNNMLPPolicy
-from visualize_episodes import save_videos
-
-from sim_env import BOX_POSE
+from .franka_constants import DT
+from .utils import load_data # data functions
+from .utils import sample_box_pose, sample_insertion_pose # robot functions
+from .utils import compute_dict_mean, set_seed, detach_dict # helper functions
+from .policy import ACTPolicy, CNNMLPPolicy
 
 import IPython
 e = IPython.embed
@@ -34,20 +92,26 @@ def main(args):
     num_epochs = args['num_epochs']
 
     # get task parameters
-    is_sim = task_name[:4] == 'sim_'
-    if is_sim:
-        from constants import SIM_TASK_CONFIGS
-        task_config = SIM_TASK_CONFIGS[task_name]
+    from .franka_constants import FRANKA_TASK_CONFIGS
+    
+    # 使用Franka任务配置
+    if task_name in FRANKA_TASK_CONFIGS:
+        task_config = FRANKA_TASK_CONFIGS[task_name]
     else:
-        from aloha_scripts.constants import TASK_CONFIGS
-        task_config = TASK_CONFIGS[task_name]
+        # 默认配置
+        task_config = {
+            'dataset_dir': '/home/wujielin/CascadeProjects/data/act_training/datasets/act_0918',
+            'num_episodes': 20,
+            'episode_len': 400,
+            'camera_names': ['top']
+        }
     dataset_dir = task_config['dataset_dir']
     num_episodes = task_config['num_episodes']
     episode_len = task_config['episode_len']
     camera_names = task_config['camera_names']
 
-    # fixed parameters
-    state_dim = 14
+    # fixed parameters - modified for single arm Franka (7 joints + 1 gripper = 8 DOF)
+    state_dim = 8
     lr_backbone = 1e-5
     backbone = 'resnet18'
     if policy_class == 'ACT':
@@ -71,6 +135,9 @@ def main(args):
                          'camera_names': camera_names,}
     else:
         raise NotImplementedError
+
+    # 先加载数据以获取is_sim信息
+    train_dataloader, val_dataloader, stats, is_sim = load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val)
 
     config = {
         'num_epochs': num_epochs,
@@ -99,8 +166,6 @@ def main(args):
             print(f'{ckpt_name}: {success_rate=} {avg_return=}')
         print()
         exit()
-
-    train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val)
 
     # save dataset stats
     if not os.path.isdir(ckpt_dir):

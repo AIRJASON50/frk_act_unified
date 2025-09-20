@@ -5,7 +5,8 @@ Modified from original DETR repository
 
 import torch
 import torch.nn as nn
-from .models.detr_vae import build_encoder, build_decoder, build
+import argparse
+from .models.detr_vae import build_encoder, build
 
 
 def build_ACT_model_and_optimizer(args_override):
@@ -16,21 +17,32 @@ def build_ACT_model_and_optimizer(args_override):
     default_args = {
         'hidden_dim': 512,
         'lr_backbone': 1e-5,
-        'backbone': 'resnet18',
-        'enc_layers': 4,
-        'dec_layers': 7,
-        'nheads': 8,
-        'num_queries': 100,
-        'dim_feedforward': 3200,
-        'dropout': 0.1,
-        'pre_norm': False,
-        'kl_weight': 10.0,
-        'lr': 1e-5,
+        'lr': 1e-4,
         'weight_decay': 1e-4,
+        'backbone': 'resnet18',
+        'dilation': False,
+        'position_embedding': 'sine',
+        'enc_layers': 4,
+        'dec_layers': 6,
+        'dim_feedforward': 2048,
+        'dropout': 0.1,
+        'nheads': 8,
+        'num_queries': 400,
+        'pre_norm': False,
+        'camera_names': ['top'],  # 修改为单相机
+        'state_dim': 8,  # 修改为单臂8维
+        'masks': False,  # 不使用segmentation masks
+        'batch_size': 8,
+        'epochs': 2000,
+        'lr_drop': 200,
     }
     
-    # 合并参数
-    args = {**default_args, **args_override}
+    # 合并用户参数
+    for key, value in args_override.items():
+        default_args[key] = value
+    
+    # 转换为namespace对象以兼容现有代码
+    args = argparse.Namespace(**default_args)
     
     # 构建模型
     model = build(args)
@@ -41,10 +53,10 @@ def build_ACT_model_and_optimizer(args_override):
         {"params": [p for n, p in model.named_parameters() if "backbone" not in n and p.requires_grad]},
         {
             "params": [p for n, p in model.named_parameters() if "backbone" in n and p.requires_grad],
-            "lr": args['lr_backbone'],
+            "lr": args.lr_backbone,
         },
     ]
-    optimizer = torch.optim.AdamW(param_dicts, lr=args['lr'], weight_decay=args['weight_decay'])
+    optimizer = torch.optim.AdamW(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
     
     return model, optimizer
 

@@ -176,6 +176,15 @@ recorded_episodes/
 *.bag
 *.rosbag
 
+# Allow access to ACT detr models for modification
+!act_algo/detr/
+!act_algo/detr/**
+!robot_server/act_algo/detr/
+!robot_server/act_algo/detr/**
+
 # Conda/pip
 *.conda
 *.whl
+
+# Embedded git repositories
+communication/agentlace
