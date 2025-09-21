@@ -81,15 +81,85 @@ python3 act_server.py \
 
 SERVER_PID=$!
 
+# 等待服务器启动
+echo "⏳ 等待服务器完全启动..."
+sleep 8
+
+# 测试服务器状态
+echo "🧪 服务器状态测试..."
+python3 -c "
+import socket
+import time
+try:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(5)
+    result = sock.connect_ex(('$SERVER_IP', $SERVER_PORT))
+    sock.close()
+    if result == 0:
+        print('✅ 网络连接: 正常')
+        print(f'📡 服务地址: $SERVER_IP:$SERVER_PORT')
+        print('🎯 服务器就绪，等待客户端连接')
+    else:
+        print('❌ 网络连接: 失败')
+        exit(1)
+except Exception as e:
+    print(f'❌ 测试失败: {e}')
+    exit(1)
+" || {
+    echo "❌ 服务器启动失败"
+    kill $SERVER_PID 2>/dev/null
+    exit 1
+}
+
 echo "========================================="
-echo "✅ AgentLace推理服务器已启动"
-echo "进程ID: $SERVER_PID"
-echo "监听地址: $SERVER_IP:$SERVER_PORT"
-echo "等待客户端连接..."
+echo "✅ AgentLace推理服务器运行中"
+echo "📊 状态: 已启动并监听"
+echo "🌐 地址: $SERVER_IP:$SERVER_PORT" 
+echo "🖥️  GPU: $GPU_ID (自动选择)"
 echo "========================================="
 
 # 等待用户中断
 trap 'echo "🛑 正在停止AgentLace服务器..."; kill $SERVER_PID 2>/dev/null; exit 0' INT
 
-# 保持脚本运行
-wait $SERVER_PID
+# 监控服务器状态和连接
+echo "🔄 开始监控服务器状态..."
+echo "   按 Ctrl+C 停止服务器"
+echo ""
+
+# 初始化计数器
+last_request_count=0
+start_time=$(date +%s)
+
+# 监控循环
+while kill -0 $SERVER_PID 2>/dev/null; do
+    sleep 10
+    current_time=$(date +%s)
+    uptime=$((current_time - start_time))
+    
+    # 检查网络连接
+    connections=$(netstat -an | grep ":$SERVER_PORT" | grep ESTABLISHED | wc -l)
+    
+    # 从日志中提取推理请求数量（简单计数）
+    log_file=$(ls ../logs/agentlace_server_*.log 2>/dev/null | tail -1)
+    if [[ -f "$log_file" ]]; then
+        current_requests=$(grep -c "收到推理请求" "$log_file" 2>/dev/null || echo 0)
+        new_requests=$((current_requests - last_request_count))
+        
+        if [[ $new_requests -gt 0 ]]; then
+            echo "$(date '+%H:%M:%S') 📨 收到 $new_requests 个新的推理请求 (总计: $current_requests)"
+            last_request_count=$current_requests
+        fi
+    fi
+    
+    # 每60秒显示一次状态
+    if [[ $((uptime % 60)) -eq 0 ]] && [[ $uptime -gt 0 ]]; then
+        echo "$(date '+%H:%M:%S') 🟢 服务器运行中 | 运行时间: ${uptime}s | 活跃连接: $connections"
+    fi
+    
+    # 检测到客户端连接时提示
+    if [[ $connections -gt 0 ]] && [[ $last_request_count -eq 0 ]]; then
+        echo "$(date '+%H:%M:%S') 🔗 检测到客户端连接 ($connections 个活跃连接)"
+    fi
+done
+
+echo "🛑 AgentLace推理服务器已停止"
