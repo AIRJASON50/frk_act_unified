@@ -18,7 +18,7 @@ echo "运行模式: $MODE"
 echo "========================================="
 
 # 设置项目路径
-PROJECT_ROOT="/home/wujielin/CascadeProjects/projects/ws/frk_act_unified"
+PROJECT_ROOT="/home/jason/ws/catkin_ws/src/frk_act_unified"
 export PYTHONPATH="${PYTHONPATH}:${PROJECT_ROOT}:${PROJECT_ROOT}/communication/agentlace"
 
 # 检查AgentLace依赖
@@ -90,7 +90,7 @@ try:
     config = TrainerConfig(
         port_number=$SERVER_PORT,
         broadcast_port=$SERVER_PORT + 1,
-        request_types=['inference'],
+        request_types=['inference', 'server_status'],
         rate_limit=1000,
         version='0.0.2'
     )
