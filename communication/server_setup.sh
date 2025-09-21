@@ -122,43 +122,69 @@ echo "========================================="
 trap 'echo "🛑 正在停止AgentLace服务器..."; kill $SERVER_PID 2>/dev/null; exit 0' INT
 
 # 监控服务器状态和连接
-echo "🔄 开始监控服务器状态..."
+echo "🔄 开始监控服务器，等待客户端连接..."
+echo "   客户端连接后将自动进行推理测试"
 echo "   按 Ctrl+C 停止服务器"
 echo ""
 
 # 初始化计数器
 last_request_count=0
+last_success_count=0
 start_time=$(date +%s)
+client_connected=false
 
 # 监控循环
 while kill -0 $SERVER_PID 2>/dev/null; do
-    sleep 10
+    sleep 3  # 更频繁检查
     current_time=$(date +%s)
     uptime=$((current_time - start_time))
     
     # 检查网络连接
     connections=$(netstat -an | grep ":$SERVER_PORT" | grep ESTABLISHED | wc -l)
     
-    # 从日志中提取推理请求数量（简单计数）
+    # 从日志中提取推理请求统计
     log_file=$(ls ../logs/agentlace_server_*.log 2>/dev/null | tail -1)
     if [[ -f "$log_file" ]]; then
         current_requests=$(grep -c "收到推理请求" "$log_file" 2>/dev/null || echo 0)
-        new_requests=$((current_requests - last_request_count))
+        current_success=$(grep -c "推理完成" "$log_file" 2>/dev/null || echo 0)
         
+        new_requests=$((current_requests - last_request_count))
+        new_success=$((current_success - last_success_count))
+        
+        # 实时显示推理请求
         if [[ $new_requests -gt 0 ]]; then
-            echo "$(date '+%H:%M:%S') 📨 收到 $new_requests 个新的推理请求 (总计: $current_requests)"
+            echo "$(date '+%H:%M:%S') 📨 收到推理请求 #$current_requests"
             last_request_count=$current_requests
+        fi
+        
+        # 实时显示推理完成
+        if [[ $new_success -gt 0 ]]; then
+            # 提取最新的推理时间
+            latest_inference_time=$(grep "推理完成" "$log_file" | tail -1 | grep -o "[0-9]\+\.[0-9]\+ms" | head -1)
+            latest_total_time=$(grep "推理完成" "$log_file" | tail -1 | grep -o "总体延迟: [0-9]\+\.[0-9]\+ms" | grep -o "[0-9]\+\.[0-9]\+")
+            
+            echo "$(date '+%H:%M:%S') ✅ 推理完成 #$current_success | 推理: ${latest_inference_time} | 总延迟: ${latest_total_time}ms"
+            last_success_count=$current_success
+            
+            # 每5个请求输出统计
+            if [[ $((current_success % 5)) -eq 0 ]] && [[ $current_success -gt 0 ]]; then
+                echo "$(date '+%H:%M:%S') 📊 推理统计: 总计 $current_success 次，成功率 100%"
+            fi
         fi
     fi
     
-    # 每60秒显示一次状态
-    if [[ $((uptime % 60)) -eq 0 ]] && [[ $uptime -gt 0 ]]; then
-        echo "$(date '+%H:%M:%S') 🟢 服务器运行中 | 运行时间: ${uptime}s | 活跃连接: $connections"
+    # 检测客户端连接
+    if [[ $connections -gt 0 ]] && [[ "$client_connected" == "false" ]]; then
+        echo "$(date '+%H:%M:%S') 🔗 客户端已连接！等待推理请求..."
+        client_connected=true
+    elif [[ $connections -eq 0 ]] && [[ "$client_connected" == "true" ]]; then
+        echo "$(date '+%H:%M:%S') 🔌 客户端已断开连接"
+        client_connected=false
     fi
     
-    # 检测到客户端连接时提示
-    if [[ $connections -gt 0 ]] && [[ $last_request_count -eq 0 ]]; then
-        echo "$(date '+%H:%M:%S') 🔗 检测到客户端连接 ($connections 个活跃连接)"
+    # 每30秒显示状态（减少频率）
+    if [[ $((uptime % 30)) -eq 0 ]] && [[ $uptime -gt 0 ]]; then
+        echo "$(date '+%H:%M:%S') 🟢 服务器运行 ${uptime}s | 连接: $connections | 推理: $current_success"
     fi
 done
 
