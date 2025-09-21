@@ -1,0 +1,106 @@
+<?xml version="1.0" ?>
+<launch>
+  <!-- Arguments -->
+  <arg name="robot" default="fr3" />
+  <arg name="arm_id" default="$(arg robot)" />
+  <arg name="use_gripper" default="true" />
+  <arg name="x" default="-0.5" />
+  <arg name="y" default="0" />
+  <arg name="z" default="0" />
+  
+  <!-- ACT Inference Configuration -->
+  <arg name="server_url" default="10.16.49.124:5555" />
+  <arg name="task_name" default="sim_transfer_cube_scripted" />
+  <arg name="chunk_size" default="100" />
+  <arg name="control_freq" default="10" />
+
+  <!-- Gazebo simulation -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(find franka_gazebo)/world/act_gazebo.world"/>
+    <arg name="paused" value="true"/>
+    <arg name="gui" value="true"/>
+    <arg name="use_sim_time" value="true"/>
+  </include>
+
+  <!-- Robot description -->
+  <param name="robot_description"
+         command="xacro $(find franka_description)/robots/$(arg robot)/$(arg robot).urdf.xacro
+                  gazebo:=true
+                  hand:=$(arg use_gripper)
+                  arm_id:=$(arg arm_id)
+                  xyz:='$(arg x) $(arg y) $(arg z)'">
+  </param>
+
+  <!-- Load Gazebo configuration -->
+  <rosparam file="$(find franka_gazebo)/config/franka_hw_sim.yaml" subst_value="true" />
+  <rosparam file="$(find franka_gazebo)/config/sim_controllers.yaml" subst_value="true" />
+  
+  <!-- Load controller configuration -->
+  <rosparam command="load" file="$(find franka_example_controllers)/config/franka_example_controllers.yaml" subst_value="true" />
+
+  <!-- Set gripper mass -->
+  <param name="m_ee" value="0.76" if="$(arg use_gripper)" />
+
+  <!-- Spawn robot model -->
+  <node name="$(arg arm_id)_model_spawner"
+        pkg="gazebo_ros"
+        type="spawn_model"
+        args="-param robot_description -urdf -model $(arg arm_id) -unpause
+              -J $(arg arm_id)_joint1 0
+              -J $(arg arm_id)_joint2 -0.785398163
+              -J $(arg arm_id)_joint3 0
+              -J $(arg arm_id)_joint4 -2.35619449
+              -J $(arg arm_id)_joint5 0
+              -J $(arg arm_id)_joint6 1.57079632679
+              -J $(arg arm_id)_joint7 0.785398163397
+              -J $(arg arm_id)_finger_joint1 0.001
+              -J $(arg arm_id)_finger_joint2 0.001"
+              />
+
+  <!-- Spawn controllers -->
+  <node pkg="controller_manager"
+        type="spawner"
+        name="$(arg arm_id)_gripper_spawner"
+        if="$(arg use_gripper)"
+        args="franka_gripper"
+        respawn="false"
+  />
+
+  <node pkg="controller_manager"
+        type="spawner"
+        name="controller_spawner"
+        respawn="false" output="screen"
+        args="--wait-for initialized franka_state_controller cartesian_impedance_example_controller"/>
+
+  <!-- Robot state publisher -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
+  <node name="joint_state_publisher" type="joint_state_publisher" pkg="joint_state_publisher">
+    <rosparam param="source_list">[franka_state_controller/joint_states, franka_gripper/joint_states] </rosparam>
+    <param name="rate" value="30"/>
+  </node>
+
+  <!-- ACT Dataset Collection Camera - Top View -->
+  <!-- Camera positioned at (0, 0.6, 0.8) looking down at table, matching ACT setup -->
+  <node pkg="gazebo_ros" type="spawn_model" name="top_camera_spawner"
+        args="-sdf -file $(find franka_gazebo)/models/top_camera/model.sdf -model top_camera -x 0 -y 0.6 -z 0.8" 
+        respawn="false" />
+
+  <!-- Launch the ACT Inference Controller -->
+  <node name="franka_act_inference_controller" 
+        pkg="frk_act_unified" 
+        type="franka_act_inference_controller.py" 
+        output="screen">
+    <param name="server_url" value="$(arg server_url)" />
+    <param name="task_name" value="$(arg task_name)" />
+    <param name="chunk_size" value="$(arg chunk_size)" />
+    <param name="control_freq" value="$(arg control_freq)" />
+    <!-- Set AgentLace Python path for the node -->
+    <env name="PYTHONPATH" value="$(env PYTHONPATH):/home/jason/ws/catkin_ws/src/frk_act_unified:/home/jason/ws/catkin_ws/src/frk_act_unified/communication/agentlace" />
+  </node>
+
+  <!-- RViz for visualization (optional) -->
+  <node name="rviz" pkg="rviz" type="rviz" 
+        args="-d $(find franka_example_controllers)/launch/rviz/franka_description_with_marker.rviz"
+        if="false"/>
+
+</launch>

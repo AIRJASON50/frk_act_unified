@@ -93,7 +93,7 @@ cleanup() {
     fi
     
     # Kill any remaining ROS processes
-    pkill -f "franka_grasping_simulation" 2>/dev/null || true
+    pkill -f "franka_grasping_record" 2>/dev/null || true
     pkill -f "franka_act_dataset_recorder" 2>/dev/null || true
     pkill -f "roslaunch" 2>/dev/null || true
     
@@ -114,13 +114,13 @@ validate_environment() {
     fi
     
     # Check if launch file exists
-    if [[ ! -f "$WORKSPACE_DIR/src/frk_act_unified/launch/franka_grasping_simulation.launch" ]]; then
-        log_error "Launch file not found: franka_grasping_simulation.launch"
+    if [[ ! -f "$WORKSPACE_DIR/src/frk_act_unified/robot_client/launch/franka_grasping_record.launch" ]]; then
+        log_error "Launch file not found: franka_grasping_record.launch"
         exit 1
     fi
     
     # Check if dataset recorder exists
-    if [[ ! -f "$WORKSPACE_DIR/src/frk_act_unified/scripts/franka_act_dataset_recorder.py" ]]; then
+    if [[ ! -f "$WORKSPACE_DIR/src/frk_act_unified/robot_client/data_record/franka_act_dataset_recorder.py" ]]; then
         log_error "Dataset recorder not found: franka_act_dataset_recorder.py"
         exit 1
     fi
@@ -153,7 +153,7 @@ start_simulation() {
     source devel/setup.bash
     
     # Launch simulation in background
-    roslaunch frk_act_unified franka_grasping_simulation.launch > /tmp/simulation.log 2>&1 &
+    roslaunch frk_act_unified franka_grasping_record.launch > /tmp/simulation.log 2>&1 &
     SIMULATION_PID=$!
     
     log "Waiting for simulation to initialize..."
@@ -175,7 +175,7 @@ start_recorder() {
     source devel/setup.bash
     
     # Start recorder in background
-    python3 src/frk_act_unified/scripts/franka_act_dataset_recorder.py > /tmp/recorder.log 2>&1 &
+    python3 src/frk_act_unified/robot_client/data_record/franka_act_dataset_recorder.py > /tmp/recorder.log 2>&1 &
     RECORDER_PID=$!
     
     log "Waiting for recorder to initialize..."

@@ -35,14 +35,14 @@ include_directories(
 # Install Python scripts
 catkin_install_python(
   PROGRAMS 
-    scripts/franka_grasping_controller.py
-    scripts/franka_position_grasping_controller.py
-    scripts/franka_cartesian_grasping_controller.py
+    robot_client/data_record/franka_impedance_grasping_controller.py
+    robot_client/data_record/franka_act_dataset_recorder.py
+    robot_client/inference_sim/franka_act_inference_controller.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
 # Install launch files
-install(DIRECTORY launch/
+install(DIRECTORY robot_client/launch/
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
   FILES_MATCHING PATTERN "*.launch"
 )
