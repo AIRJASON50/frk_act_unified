@@ -309,17 +309,17 @@ class FrankaACTInferenceController:
             return None
             
         try:
-            # Prepare joint state data (9-DOF: 7 arm + 2 gripper)
+            # Prepare joint state data (8-DOF: 7 arm + 1 gripper, matching client_setup.sh)
             arm_qpos = self.current_joint_states['position']  # 7-DOF
             arm_qvel = self.current_joint_states['velocity']  # 7-DOF
             
-            # Add gripper state (assuming symmetrical fingers)
-            gripper_qpos = [self.current_gripper_width/2, self.current_gripper_width/2]
-            gripper_qvel = [0.0, 0.0]  # Assume static for simplification
+            # Add single gripper state (matching successful client_setup.sh format)
+            gripper_pos = self.current_gripper_width  # Single gripper value
+            gripper_vel = 0.0  # Assume static for simplification
             
-            # Combine arm + gripper (9-DOF total)
-            full_qpos = np.concatenate([arm_qpos, gripper_qpos])
-            full_qvel = np.concatenate([arm_qvel, gripper_qvel])
+            # Combine arm + gripper (8-DOF total, matching server expectation)
+            full_qpos = np.concatenate([arm_qpos, [gripper_pos]])
+            full_qvel = np.concatenate([arm_qvel, [gripper_vel]])
             
             # Prepare camera image
             image_resized = cv2.resize(self.latest_camera_image, (640, 480))
@@ -329,11 +329,13 @@ class FrankaACTInferenceController:
             _, img_encoded = cv2.imencode('.jpg', image_rgb)
             img_b64 = base64.b64encode(img_encoded.tobytes()).decode('utf-8')
             
-            # Prepare data dictionary
+            # Prepare data dictionary (matching client_setup.sh format)
             state_data = {
-                'image': img_b64,
                 'qpos': full_qpos.tolist(),
-                'qvel': full_qvel.tolist()
+                'qvel': full_qvel.tolist(),
+                'image': img_b64,
+                'request_id': f'franka_inference_{time.time()}',
+                'timestamp': time.time()
             }
             
             return state_data
@@ -435,8 +437,13 @@ class FrankaACTInferenceController:
                     rospy.loginfo(f"🧠 Requesting inference #{inference_count + 1}")
                     start_time = time.time()
                     
-                    # Get action sequence from server
-                    actions = self.agentlace_client.predict(state_data)
+                    # Get action sequence from server using TrainerClient (matching client_setup.sh)
+                    response = self.agentlace_client.request('inference', state_data)
+                    
+                    if response and response.get('success'):
+                        actions = np.array(response['actions'])
+                    else:
+                        actions = None
                     
                     inference_time = (time.time() - start_time) * 1000
                     
