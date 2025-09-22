@@ -61,6 +61,12 @@ FRANKA_TASK_CONFIGS = {
         'episode_len': 400,  # 典型的pick-and-place长度
         'camera_names': ['top']  # 单相机配置
     },
+    'act_data': {
+        'dataset_dir': os.path.join(DATA_DIR, 'act_data'),
+        'num_episodes': 50,  # 新的笛卡尔数据集有50个episode
+        'episode_len': 381,  # 根据验证结果的实际长度
+        'camera_names': ['top']  # 单相机配置
+    },
     
     'sim_transfer_cube_scripted': {
         'dataset_dir': os.path.join(DATA_DIR, 'sim_transfer_cube_scripted'),

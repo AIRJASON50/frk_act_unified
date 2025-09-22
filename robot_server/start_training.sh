@@ -15,7 +15,7 @@
 # ./start_training.sh franka_pick_place 2000 4     # 完整参数
 #
 # PATHS:
-# - 数据集: /home/wujielin/CascadeProjects/data/act_training/datasets/act_0918
+# - 数据集: /home/wujielin/CascadeProjects/data/act_training/datasets/act_data (笛卡尔空间数据)
 # - 模型: /home/wujielin/CascadeProjects/data/act_training/checkpoints
 # - 日志: /home/wujielin/CascadeProjects/data/act_training/logs
 #===============================================================================
@@ -28,9 +28,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default parameters (完整训练配置)
-TASK_NAME=${1:-"franka_pick_place"}
+TASK_NAME=${1:-"act_data"}  # 使用新的笛卡尔空间数据集
 NUM_EPOCHS=${2:-2000}  # 完整训练epoch数
-BATCH_SIZE=${3:-8}     # 标准batch size
+BATCH_SIZE=${3:-4}     # 降低batch size适应笛卡尔数据
 
 # ACT model parameters (based on memory notes)
 HIDDEN_DIM=512
@@ -93,6 +93,10 @@ echo "    --temporal_agg \\"
 echo "    --seed 0"
 echo ""
 echo -e "${BLUE}========================================${NC}"
+
+# Activate conda environment and execute training
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate aloha
 
 # Execute training using the standard ACT module
 python -m act_algo_train.imitate_episodes \
