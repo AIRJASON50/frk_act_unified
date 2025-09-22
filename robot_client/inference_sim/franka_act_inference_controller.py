@@ -225,11 +225,12 @@ class FrankaACTInferenceController:
             # Test connection by making a simple request (matching client_setup.sh approach)
             rospy.loginfo("Testing AgentLace connection...")
             
-            # Test with a simple request to verify connection (matching client_setup.sh)
-            response = self.agentlace_client.request('inference', {'test': True})
+            # Use server_status request instead of inference to avoid qpos requirement
+            response = self.agentlace_client.request('server_status', {})
             
-            if response is not None:
+            if response is not None and response.get('success', False):
                 rospy.loginfo("✅ Connection test successful - server responded")
+                rospy.loginfo(f"   Server status: {response.get('status', 'unknown')}")
                 return True
             else:
                 rospy.logwarn("❌ Connection test failed - no response from server")
@@ -304,22 +305,21 @@ class FrankaACTInferenceController:
             rospy.logwarn(f"Failed to process camera image: {e}")
     
     def get_current_state_data(self):
-        """Get current robot state in ACT format"""
-        if self.current_joint_states is None or self.latest_camera_image is None:
+        """Get current robot state in ACT format (Cartesian space)"""
+        if self.current_pose is None or self.latest_camera_image is None:
             return None
             
         try:
-            # Prepare joint state data (8-DOF: 7 arm + 1 gripper, matching client_setup.sh)
-            arm_qpos = self.current_joint_states['position']  # 7-DOF
-            arm_qvel = self.current_joint_states['velocity']  # 7-DOF
+            # Prepare Cartesian state data (8-DOF: [x,y,z,qx,qy,qz,qw,gripper])
+            position = self.current_pose['position']  # [x, y, z]
+            orientation = self.current_pose['orientation']  # [qx, qy, qz, qw]
+            gripper_pos = self.current_gripper_width  # Gripper width
             
-            # Add single gripper state (matching successful client_setup.sh format)
-            gripper_pos = self.current_gripper_width  # Single gripper value
-            gripper_vel = 0.0  # Assume static for simplification
+            # Combine pose + gripper (8-DOF total)
+            full_qpos = np.concatenate([position, orientation, [gripper_pos]])
             
-            # Combine arm + gripper (8-DOF total, matching server expectation)
-            full_qpos = np.concatenate([arm_qpos, [gripper_pos]])
-            full_qvel = np.concatenate([arm_qvel, [gripper_vel]])
+            # For velocities, use zeros for now (can be improved with twist estimation)
+            full_qvel = np.zeros(8)  # [dx,dy,dz,wx,wy,wz,gripper_vel]
             
             # Prepare camera image
             image_resized = cv2.resize(self.latest_camera_image, (640, 480))
@@ -329,7 +329,7 @@ class FrankaACTInferenceController:
             _, img_encoded = cv2.imencode('.jpg', image_rgb)
             img_b64 = base64.b64encode(img_encoded.tobytes()).decode('utf-8')
             
-            # Prepare data dictionary (matching client_setup.sh format)
+            # Prepare data dictionary
             state_data = {
                 'qpos': full_qpos.tolist(),
                 'qvel': full_qvel.tolist(),
@@ -357,27 +357,52 @@ class FrankaACTInferenceController:
         
         self.equilibrium_pose_pub.publish(pose_msg)
     
+    def execute_gripper_width_command(self, gripper_width):
+        """Execute gripper width command directly
+        
+        Args:
+            gripper_width: Target gripper width in meters (0.0 to 0.08)
+        """
+        try:
+            # Clamp to valid range
+            target_width = np.clip(gripper_width, 0.0, 0.08)
+            
+            # Execute gripper movement if significant change
+            width_change = abs(target_width - self.current_gripper_width)
+            if width_change > 0.005:  # 5mm threshold
+                goal = MoveGoal()
+                goal.width = target_width
+                goal.speed = 0.1
+                
+                self.gripper_move_client.send_goal(goal)
+                # Don't wait for completion to maintain control frequency
+                
+                self.current_gripper_width = target_width
+                
+        except Exception as e:
+            rospy.logwarn(f"Gripper width command failed: {e}")
+    
     def execute_action(self, action):
         """Execute single action command
         
         Args:
-            action: 8-dimensional action [x, y, z, qx, qy, qz, qw, gripper_width]
+            action: 8-dimensional action [x, y, z, qx, qy, qz, qw, gripper_width] in Cartesian space
         """
         try:
             if len(action) != 8:
                 rospy.logwarn(f"Invalid action dimension: {len(action)}, expected 8")
                 return False
             
-            # Extract pose command (first 7 elements)
-            target_position = action[:3]
-            target_orientation = action[3:7]
-            gripper_command = action[7]
+            # Extract Cartesian pose command (first 7 elements) and gripper (8th element)
+            target_position = action[:3]      # [x, y, z] position
+            target_orientation = action[3:7]  # [qx, qy, qz, qw] quaternion
+            gripper_width = action[7]         # Gripper width in meters
             
-            # Send pose command to impedance controller
+            # Send Cartesian pose command to impedance controller
             self.send_equilibrium_pose(target_position, target_orientation)
             
-            # Handle gripper command
-            self.execute_gripper_command(gripper_command)
+            # Handle gripper command (convert width to move command)
+            self.execute_gripper_width_command(gripper_width)
             
             return True
             

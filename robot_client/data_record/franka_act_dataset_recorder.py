@@ -49,10 +49,10 @@ ERROR HANDLING:
 === DATA FORMAT SPECIFICATION ===
 
 HDF5 File Structure:
-├── action (T, 8)           # Target joint positions for next timestep
+├── action (T, 8)           # Target end-effector pose for next timestep
 ├── observations/
-│   ├── qpos (T, 8)         # Current joint positions [7 joints + 1 gripper]
-│   ├── qvel (T, 8)         # Current joint velocities [7 joints + 1 gripper]
+│   ├── qpos (T, 8)         # Current end-effector pose [x,y,z,qx,qy,qz,qw,gripper]
+│   ├── qvel (T, 8)         # Current end-effector velocity [dx,dy,dz,wx,wy,wz,gripper_vel]
 │   └── images/
 │       └── top (T, H, W, 3) # RGB images from top camera (480x640x3)
 └── attributes:
@@ -60,14 +60,14 @@ HDF5 File Structure:
 
 Data Dimensions:
 - T: Number of timesteps in episode (typically 300-400 for pick-and-place)
-- 8 DOF: 7 Franka joint positions + 1 gripper width
+- 8 DOF: [x,y,z,qx,qy,qz,qw,gripper_width] in Cartesian space
 - Images: Height=480, Width=640, Channels=3 (RGB)
 
 === ROS TOPICS ===
 
 Input Topics:
 - /top_camera/rgb/image_raw              # Camera images (sensor_msgs/Image)
-- /franka_state_controller/joint_states  # Joint positions/velocities (sensor_msgs/JointState)
+- /franka_state_controller/franka_states # End-effector pose from Franka state (franka_msgs/FrankaState)
 - /franka_gripper/joint_states           # Gripper state (sensor_msgs/JointState)
 - /franka_controller/current_phase       # Episode phase (std_msgs/Int32)
 - /franka_controller/episode_control     # Recording control (std_msgs/String)
@@ -111,10 +111,16 @@ This recorder generates datasets compatible with:
 import rospy
 import numpy as np
 import h5py
+from sensor_msgs.msg import Image, JointState
+from std_msgs.msg import Int32, String
+from franka_msgs.msg import FrankaState
 from cv_bridge import CvBridge
-import threading
+import cv2
 import os
+import threading
 from datetime import datetime
+import time
+import tf.transformations as tft
 
 # ROS message types
 from sensor_msgs.msg import Image, JointState
@@ -139,9 +145,11 @@ class FrankaACTDatasetRecorder:
         # ACT data buffers
         self._reset_buffers()
         
-        # Robot state tracking
-        self.current_qpos = np.zeros(8)  # 7 joints + gripper
-        self.current_qvel = np.zeros(8)
+        # Robot state tracking (Cartesian space)
+        self.current_qpos = np.zeros(8)  # [x,y,z,qx,qy,qz,qw,gripper]
+        self.current_qvel = np.zeros(8)  # [dx,dy,dz,wx,wy,wz,gripper_vel]
+        self.current_pose = None
+        self.current_twist = None
         
         # ROS components
         self.bridge = CvBridge()
@@ -183,12 +191,15 @@ class FrankaACTDatasetRecorder:
     def _init_subscribers(self):
         """Initialize ROS subscribers"""
         rospy.Subscriber('/top_camera/rgb/image_raw', Image, self._image_callback, queue_size=10)
-        rospy.Subscriber('/franka_state_controller/joint_states', JointState, self._joint_callback, queue_size=10)
         rospy.Subscriber('/franka_gripper/joint_states', JointState, self._gripper_callback, queue_size=10)
         rospy.Subscriber('/franka_controller/current_phase', Int32, self._phase_callback, queue_size=5)
         rospy.Subscriber('/franka_controller/episode_control', String, self._episode_control_callback, queue_size=5)
-        # Franka state subscriber (not used in current ACT format)
-        rospy.Subscriber('/franka_state_controller/franka_states', FrankaState, self._franka_state_callback, queue_size=10)
+        # Franka state subscriber for end-effector pose
+        self.franka_state_sub = rospy.Subscriber(
+            '/franka_state_controller/franka_states',
+            FrankaState,
+            self._franka_state_callback
+        )
     
     def _image_callback(self, msg):
         """Store camera images in ACT format"""
@@ -201,31 +212,39 @@ class FrankaACTDatasetRecorder:
         except Exception as e:
             rospy.logerr(f"Image processing error: {e}")
     
-    def _joint_callback(self, msg):
-        """Process joint states and generate ACT data"""
-        # Extract joint data
-        joint_positions = np.array(msg.position[:7])
-        joint_velocities = np.array(msg.velocity[:7]) if len(msg.velocity) >= 7 else np.zeros(7)
+    def _franka_state_callback(self, msg):
+        """Process Franka state and extract end-effector pose"""
+        # Extract end-effector pose from transformation matrix
+        T_matrix = np.array(msg.O_T_EE).reshape(4, 4, order='F')
+        position = T_matrix[:3, 3]
+        quaternion = tft.quaternion_from_matrix(T_matrix)
+        
+        # Extract end-effector twist (velocities)
+        ee_twist = np.array(msg.O_dP_EE_d[:6])  # [dx,dy,dz,wx,wy,wz]
         
         with self.data_lock:
-            # Update current state
-            self.current_qpos[:7] = joint_positions
-            self.current_qvel[:7] = joint_velocities
+            # Update current Cartesian state
+            self.current_qpos[:3] = position  # [x, y, z]
+            self.current_qpos[3:7] = quaternion  # [qx, qy, qz, qw]
+            self.current_qvel[:6] = ee_twist  # [dx,dy,dz,wx,wy,wz]
+            
+            # Store pose for reference
+            self.current_pose = {
+                'position': position,
+                'orientation': quaternion
+            }
             
             if self.recording:
-                # Store observations
+                # Store observations in Cartesian space
                 qpos_obs = self.current_qpos.copy()
                 qvel_obs = self.current_qvel.copy()
                 self.observations['qpos'].append(qpos_obs)
                 self.observations['qvel'].append(qvel_obs)
                 
-                # Generate action (for demonstration: action = current position)
+                # Generate action (for demonstration: action = current pose)
                 self.actions.append(qpos_obs.copy())
                 self.timestamps.append(rospy.Time.now().to_sec())
     
-    def _franka_state_callback(self, msg):
-        """Franka state callback (unused in current ACT format)"""
-        pass
     
     def _gripper_callback(self, msg):
         """Update gripper state in qpos"""

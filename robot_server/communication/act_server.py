@@ -121,6 +121,25 @@ class ACTDistributedServer:
         request_id = payload.get("request_id", f"req_{self.request_count}")
         
         try:
+            # 验证请求格式
+            if "qpos" not in payload:
+                error_msg = "缺少必需的 'qpos' 字段"
+                print(f"❌ 推理请求格式错误: {error_msg}")
+                return {
+                    "success": False,
+                    "error_msg": error_msg,
+                    "request_id": request_id
+                }
+            
+            if "image" not in payload:
+                error_msg = "缺少必需的 'image' 字段"
+                print(f"❌ 推理请求格式错误: {error_msg}")
+                return {
+                    "success": False,
+                    "error_msg": error_msg,
+                    "request_id": request_id
+                }
+            
             # 解析输入数据
             qpos = np.array(payload["qpos"], dtype=np.float32)
             qvel = np.array(payload.get("qvel", [0.0] * 8), dtype=np.float32)
