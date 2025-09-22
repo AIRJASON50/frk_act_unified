@@ -239,16 +239,16 @@ record_episodes() {
 
 # Validate collected data
 validate_data() {
-    log "🔍 Validating collected dataset..."
+    log " Validating collected dataset..."
     
     cd "$WORKSPACE_DIR"
     
     # Run validation script
-    if python3 src/frk_act_unified/scripts/validate_act_dataset.py > /tmp/validation.log 2>&1; then
+    if python3 src/frk_act_unified/robot_client/data_record/validate_act_dataset.py > /tmp/validation.log 2>&1; then
         log_success "Dataset validation completed successfully"
         
         # Show validation results
-        log "📊 Dataset Validation Report:"
+        log " Dataset Validation Report:"
         echo "----------------------------------------"
         cat /tmp/validation.log
         echo "----------------------------------------"
