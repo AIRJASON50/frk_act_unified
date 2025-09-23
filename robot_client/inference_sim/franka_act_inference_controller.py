@@ -61,14 +61,16 @@ from io import BytesIO
 from PIL import Image
 
 # ROS messages
-from geometry_msgs.msg import PoseStamped, Point, Quaternion
+from geometry_msgs.msg import PoseStamped, Point, Quaternion, Pose
 from std_msgs.msg import Header, String, Bool
 from sensor_msgs.msg import Image as ROSImage, JointState
 from franka_msgs.msg import FrankaState
 from franka_gripper.msg import GraspAction, GraspGoal, MoveAction, MoveGoal
 from std_srvs.srv import Trigger, TriggerResponse
+from gazebo_msgs.srv import DeleteModel, SpawnModel, SetModelState
 from cv_bridge import CvBridge
 import tf
+import random
 
 # AgentLace for distributed inference
 try:
@@ -147,6 +149,15 @@ class FrankaACTInferenceController:
         self.gripper_grasp_client = actionlib.SimpleActionClient('/franka_gripper/grasp', GraspAction)
         self.gripper_move_client = actionlib.SimpleActionClient('/franka_gripper/move', MoveAction)
         
+        # Gazebo services for stone management
+        self.delete_model_srv = rospy.ServiceProxy('/gazebo/delete_model', DeleteModel)
+        self.spawn_model_srv = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)
+        self.set_model_state_srv = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
+        
+        # Stone generation parameters
+        self.robot_world_offset = [-0.5, 0.0, 0.0]  # Robot base offset from world origin
+        self.initial_stone_center = [0.5, 0.0]  # Fixed center for 15cm circle randomization
+        
         # Control parameters
         self.control_rate = rospy.Rate(self.control_freq)
         self.pose_tolerance = 0.005  # 5mm position tolerance for precise control
@@ -167,6 +178,9 @@ class FrankaACTInferenceController:
         else:
             rospy.logerr("AgentLace not available - cannot perform inference")
             self.agentlace_client = None
+            
+        # Generate initial stone for inference target
+        self.generate_inference_stone()
             
         rospy.loginfo("Controller ready for ACT inference")
         rospy.loginfo("Services:")
@@ -556,6 +570,129 @@ class FrankaACTInferenceController:
         except Exception as e:
             rospy.logerr(f"Failed to stop inference: {e}")
             return TriggerResponse(success=False, message=f"Stop failed: {str(e)}")
+    
+    def _generate_random_stone_position(self):
+        """Generate random stone position within 15cm circle of fixed center"""
+        z_table = 0.4  # Table surface height
+        z_stone_half = 0.032  # Half of stone height (0.064/2)
+        z_spawn = z_table + z_stone_half  # Place stone on table surface
+        
+        # Always use fixed initial center for randomization
+        center_x, center_y = self.initial_stone_center[0], self.initial_stone_center[1]
+        
+        # Generate random position within 15cm circle of fixed center  
+        radius_max = 0.15  # 15cm radius
+        
+        # Use sqrt for uniform distribution within circle (not just circumference)
+        radius = radius_max * np.sqrt(random.uniform(0.01, 1.0))  # Uniform distribution within circle
+        angle = random.uniform(0, 2 * np.pi)
+        
+        rand_x = center_x + radius * np.cos(angle)
+        rand_y = center_y + radius * np.sin(angle)
+        
+        # Ensure new position stays within workspace bounds
+        rand_x = np.clip(rand_x, 0.35, 0.65)  # Tighter bounds to ensure reachability
+        rand_y = np.clip(rand_y, -0.15, 0.15)
+        
+        rospy.loginfo(f"Random stone position generation:")
+        rospy.loginfo(f"  Fixed center: [{center_x:.3f}, {center_y:.3f}]")
+        rospy.loginfo(f"  Radius: {radius:.3f}m (max {radius_max:.3f}m), Angle: {angle:.2f}rad")
+        rospy.loginfo(f"  Generated position: [{rand_x:.3f}, {rand_y:.3f}, {z_spawn:.3f}]")
+        
+        # Convert to world coordinates (robot base is at [-0.5, 0, 0] in world)
+        world_x = rand_x + (-0.5)  # robot_x + robot_world_x
+        world_y = rand_y + 0.0     # robot_y + robot_world_y  
+        world_z = z_spawn
+        
+        rospy.loginfo(f"  World coordinates: [{world_x:.3f}, {world_y:.3f}, {world_z:.3f}]")
+        
+        return rand_x, rand_y, z_spawn, world_x, world_y, world_z
+    
+    def _spawn_stone_at_position(self, world_x, world_y, world_z, robot_x, robot_y, robot_z):
+        """Helper method to spawn stone at specified position using model file path"""
+        # Path to the stone model SDF file
+        stone_model_path = '/home/jason/ws/catkin_ws/src/franka_ros/franka_gazebo/models/stone/model.sdf'
+        
+        # Read the SDF content from file
+        try:
+            with open(stone_model_path, 'r') as sdf_file:
+                stone_sdf = sdf_file.read()
+        except IOError as e:
+            rospy.logerr(f"Failed to read stone model file: {e}")
+            return False
+        
+        try:
+            # Set initial pose
+            initial_pose = Pose()
+            initial_pose.position.x = world_x
+            initial_pose.position.y = world_y
+            initial_pose.position.z = world_z
+            initial_pose.orientation.w = 1.0  # No rotation
+            
+            # Spawn the stone
+            response = self.spawn_model_srv(
+                model_name='stone',
+                model_xml=stone_sdf,
+                robot_namespace='',
+                initial_pose=initial_pose,
+                reference_frame='world'
+            )
+            
+            if response.success:
+                rospy.loginfo(f"Stone spawned at world: [{world_x:.3f}, {world_y:.3f}, {world_z:.3f}]")
+                rospy.loginfo(f"Stone robot-relative: [{robot_x:.3f}, {robot_y:.3f}, {robot_z:.3f}]")
+                return True
+            else:
+                rospy.logerr(f"Failed to spawn stone: {response.status_message}")
+                return False
+                
+        except Exception as e:
+            rospy.logerr(f"Exception during stone spawning: {e}")
+            return False
+    
+    def generate_inference_stone(self):
+        """Generate a single random stone for ACT inference target"""
+        rospy.loginfo("🎯 Generating inference target stone at random position")
+        
+        try:
+            # Wait for Gazebo services
+            rospy.loginfo("Waiting for Gazebo services...")
+            try:
+                rospy.wait_for_service('/gazebo/delete_model', timeout=5.0)
+                rospy.wait_for_service('/gazebo/spawn_sdf_model', timeout=5.0)
+            except rospy.ROSException:
+                rospy.logwarn("Some Gazebo services not available, stone generation may fail")
+            
+            # Delete any existing stone first
+            try:
+                delete_response = self.delete_model_srv('stone')
+                if delete_response.success:
+                    rospy.loginfo("Existing stone deleted successfully")
+                rospy.sleep(1.0)  # Wait for deletion to complete
+            except Exception as e:
+                rospy.loginfo(f"No existing stone to delete (expected): {e}")
+            
+            # Generate new random position and spawn stone
+            rand_x, rand_y, z_spawn, world_x, world_y, world_z = self._generate_random_stone_position()
+            
+            # Spawn stone at random position
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                if self._spawn_stone_at_position(world_x, world_y, world_z, rand_x, rand_y, z_spawn):
+                    rospy.loginfo(f"✅ Inference stone spawned successfully on attempt {attempt + 1}")
+                    rospy.loginfo(f"   Position: [{rand_x:.3f}, {rand_y:.3f}, {z_spawn:.3f}] (robot frame)")
+                    return True
+                else:
+                    rospy.logwarn(f"Stone spawn attempt {attempt + 1} failed")
+                    if attempt < max_attempts - 1:
+                        rospy.sleep(1.0)  # Wait before retry
+            
+            rospy.logerr("❌ Failed to spawn inference stone after multiple attempts")
+            return False
+            
+        except Exception as e:
+            rospy.logerr(f"Exception during inference stone generation: {e}")
+            return False
 
 def main():
     try:

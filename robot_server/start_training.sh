@@ -37,7 +37,7 @@ HIDDEN_DIM=512
 CHUNK_SIZE=100
 KL_WEIGHT=10
 DIM_FEEDFORWARD=3200
-LR=1e-5
+LR=5e-5
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}    Franka ACT Training Launcher${NC}"

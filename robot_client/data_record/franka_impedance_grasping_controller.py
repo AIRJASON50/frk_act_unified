@@ -160,7 +160,7 @@ class FrankaImpedanceGraspingController:
         self.stone_positions = {}
         self.robot_world_offset = np.array([0.5, 0.0, 0.0])  # Robot base offset from world origin
         self.last_stone_position = None  # Track last stone position for local randomization
-        self.initial_stone_center = [0.5, 0.0]  # Fixed center for 10cm circle randomization
+        self.initial_stone_center = [0.5, 0.0]  # Fixed center for 15cm circle randomization
         self.model_states_received = False
         
         # TF listener for coordinate transformations
@@ -509,26 +509,46 @@ class FrankaImpedanceGraspingController:
         
         try:
             # Phase 0: Stone Generation
-            rospy.loginfo("Phase 0: Generating stone")
+            rospy.loginfo("Phase 0: Generating stone at new random position")
             self.publish_phase(0)
             
-            # Spawn a stone at a random location if not present
-            stones = self.get_stones_info()
-            if not stones:
-                rospy.loginfo("No stones detected, spawning new stone")
-                if not self.spawn_new_stone_random():
-                    rospy.logerr("Failed to spawn stone")
-                    return False
-                rospy.sleep(2.0)  # Wait for spawn to complete
+            # Always delete existing stones first to ensure clean slate
+            rospy.loginfo("Clearing any existing stones for new random position")
+            try:
+                # Try to delete stone model (may not exist, which is fine)
+                delete_response = self.delete_model_srv('stone')
+                if delete_response.success:
+                    rospy.loginfo("Existing stone deleted successfully")
+                else:
+                    rospy.loginfo(f"Stone deletion response: {delete_response.status_message}")
+                rospy.sleep(1.5)  # Wait for deletion to complete
+            except Exception as e:
+                rospy.loginfo(f"No existing stone to delete (expected for first run): {e}")
+            
+            # Always spawn new stone at random location within 15cm circle
+            rospy.loginfo("Spawning new stone at random position within 15cm circle")
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                if self.spawn_new_stone_random():
+                    rospy.loginfo(f"Stone spawned successfully on attempt {attempt + 1}")
+                    break
+                else:
+                    rospy.logwarn(f"Stone spawn attempt {attempt + 1} failed")
+                    if attempt < max_attempts - 1:
+                        rospy.sleep(1.0)  # Wait before retry
+            else:
+                rospy.logerr("Failed to spawn stone after multiple attempts")
+                return False
+            rospy.sleep(2.0)  # Wait for spawn to complete and physics to settle
                 
             # Verify stone generation
             stones = self.get_stones_info()
             if not stones:
-                rospy.logerr("No stones available for pick and place")
+                rospy.logerr("No stones available after spawning")
                 return False
                 
             stone_info = stones[0]  # Use the first stone
-            rospy.loginfo(f"Target stone at position: {stone_info['position']}")
+            rospy.loginfo(f"New stone spawned at random position: {stone_info['position']}")
             
             # Phase 1: Record Start (triggers automatic recording in dataset recorder)
             rospy.loginfo("Phase 1: Stone detected, starting recording")
@@ -701,28 +721,32 @@ class FrankaImpedanceGraspingController:
         
         # Generate random position within 15cm circle of fixed center  
         radius_max = 0.15  # 15cm radius
-        radius = random.uniform(0.01, radius_max)  # Minimum 1cm from center
+        
+        # Use sqrt for uniform distribution within circle (not just circumference)
+        radius = radius_max * np.sqrt(random.uniform(0.01, 1.0))  # Uniform distribution within circle
         angle = random.uniform(0, 2 * np.pi)
         
         rand_x = center_x + radius * np.cos(angle)
         rand_y = center_y + radius * np.sin(angle)
         
         # Ensure new position stays within workspace bounds
-        rand_x = np.clip(rand_x, 0.3, 0.7)
-        rand_y = np.clip(rand_y, -0.3, 0.3)
+        rand_x = np.clip(rand_x, 0.35, 0.65)  # Tighter bounds to ensure reachability
+        rand_y = np.clip(rand_y, -0.15, 0.15)
         
-        rospy.loginfo(f"Random position generation:")
+        rospy.loginfo(f"Random stone position generation:")
         rospy.loginfo(f"  Fixed center: [{center_x:.3f}, {center_y:.3f}]")
-        rospy.loginfo(f"  Radius: {radius:.3f}m, Angle: {angle:.2f}rad")
-        rospy.loginfo(f"  New position: [{rand_x:.3f}, {rand_y:.3f}]")
+        rospy.loginfo(f"  Radius: {radius:.3f}m (max {radius_max:.3f}m), Angle: {angle:.2f}rad")
+        rospy.loginfo(f"  Generated position: [{rand_x:.3f}, {rand_y:.3f}, {z_spawn:.3f}]")
         
         # Store new position for next iteration
         self.last_stone_position = [rand_x, rand_y, z_spawn]
         
-        # Convert to world coordinates
-        world_x = rand_x + self.robot_world_offset[0]
-        world_y = rand_y + self.robot_world_offset[1]
+        # Convert to world coordinates (robot base is at [-0.5, 0, 0] in world)
+        world_x = rand_x + (-0.5)  # robot_x + robot_world_x
+        world_y = rand_y + 0.0     # robot_y + robot_world_y  
         world_z = z_spawn
+        
+        rospy.loginfo(f"  World coordinates: [{world_x:.3f}, {world_y:.3f}, {world_z:.3f}]")
         
         return rand_x, rand_y, z_spawn, world_x, world_y, world_z
     

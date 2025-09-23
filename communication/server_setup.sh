@@ -10,7 +10,7 @@ SERVER_PORT="5555"              # AgentLace固定端口
 
 # 可选参数
 MODEL_PATH=${1:-"/home/wujielin/CascadeProjects/data/act_training/checkpoints/franka_pick_place"}
-MODEL_SELECTION=${2:-"auto"}  # auto, best, latest, 或具体文件名
+MODEL_SELECTION=${2:-"best"}  # auto, best, latest, 或具体文件名
 
 # 智能GPU选择逻辑：优先使用GPU 2、3，选择占用最小的
 echo "🔍 检查GPU使用情况..."
