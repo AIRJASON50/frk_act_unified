@@ -87,6 +87,7 @@ import rospy
 import numpy as np
 import tf.transformations as tft
 import actionlib
+import os
 from geometry_msgs.msg import PoseStamped, Point, Quaternion, Pose
 from std_msgs.msg import Header, String, Int32, Empty
 from gazebo_msgs.msg import ModelStates, ModelState
@@ -100,6 +101,7 @@ import random
 class FrankaImpedanceGraspingController:
     def __init__(self):
         rospy.init_node('franka_impedance_grasping_controller', anonymous=True)
+        
         
         # Publishers
         self.equilibrium_pose_pub = rospy.Publisher(
@@ -173,11 +175,11 @@ class FrankaImpedanceGraspingController:
         
         # Control parameters
         self.control_rate = rospy.Rate(10)  # 10 Hz
-        self.pose_tolerance = 0.01  # 1cm position tolerance
-        self.lift_pose_tolerance = 0.02  # 2cm tolerance for lifting with object
+        self.pose_tolerance = 0.015  # 1.5cm position tolerance (balanced for precision/success)
+        self.lift_pose_tolerance = 0.03   # 3cm tolerance for lifting with object
+        self.home_tolerance = 0.025       # 2.5cm tolerance specifically for returning home
         self.orientation_tolerance = 0.1  # orientation tolerance
         
-        rospy.loginfo("Franka Impedance Grasping Controller initialized")
         
         # Wait for connections
         self.wait_for_connections()
@@ -189,68 +191,53 @@ class FrankaImpedanceGraspingController:
         # Initialize to phase 0 (ready for stone generation)
         self.publish_phase(0)
         
-        rospy.loginfo("Controller ready for operation")
-        rospy.loginfo("Grasp trigger service available at: /franka_controller/trigger_grasp")
-        rospy.loginfo("8-Phase recording system initialized (0-8: Stone Gen->Record Start->...->Record End)")
+    
+    
     
     def publish_phase(self, phase):
         """Publish current execution phase for dataset recording"""
         phase_msg = Int32()
         phase_msg.data = phase
         self.phase_pub.publish(phase_msg)
-        rospy.logdebug(f"Published phase: {phase}")
     
     def publish_episode_control(self, command):
         """Publish episode control command for dataset recording"""
         control_msg = String()
         control_msg.data = command
         self.episode_control_pub.publish(control_msg)
-        rospy.loginfo(f"Published episode control: {command}")
 
     def wait_for_connections(self):
         """Wait for all necessary connections to be established"""
-        rospy.loginfo("Waiting for connections...")
-        
         # Wait for equilibrium pose topic to be ready
         while self.equilibrium_pose_pub.get_num_connections() == 0 and not rospy.is_shutdown():
-            rospy.loginfo("Waiting for cartesian_impedance_example_controller connection...")
-            rospy.sleep(1.0)
+            rospy.sleep(0.5)
             
         # Wait for Gazebo services
-        rospy.loginfo("Waiting for Gazebo services...")
         try:
             rospy.wait_for_service('/gazebo/delete_model', timeout=10.0)
             rospy.wait_for_service('/gazebo/spawn_sdf_model', timeout=10.0) 
             rospy.wait_for_service('/gazebo/set_model_state', timeout=10.0)
         except rospy.ROSException:
-            rospy.logwarn("Some Gazebo services not available, reset functionality may be limited")
+            pass
         
         # Wait for gripper action servers
-        rospy.loginfo("Waiting for gripper action servers...")
         self.gripper_grasp_client.wait_for_server(timeout=rospy.Duration(10.0))
         self.gripper_move_client.wait_for_server(timeout=rospy.Duration(10.0))
-        
-        rospy.loginfo("All connections established")
 
     def wait_for_robot_state(self):
         """Wait for first robot state message"""
-        rospy.loginfo("Waiting for robot state...")
         while not self.robot_state_received and not rospy.is_shutdown():
             rospy.sleep(0.1)
-        rospy.loginfo("Robot state received")
     
     def wait_for_model_states(self):
         """Wait for first model states message"""
-        rospy.loginfo("Waiting for model states...")
         while not self.model_states_received and not rospy.is_shutdown():
             rospy.sleep(0.1)
-        rospy.loginfo("Model states received")
     
     def wait_for_new_stone_position(self, timeout=10.0):
         """Wait for stone position to be updated in model states after spawning"""
         expected_pos = self.last_stone_position
         if expected_pos is None:
-            rospy.logwarn("No expected stone position to wait for")
             return
         
         start_time = rospy.Time.now()
@@ -264,19 +251,10 @@ class FrankaImpedanceGraspingController:
                 ])
                 
                 if pos_diff < 0.05:  # Within 5cm tolerance
-                    rospy.loginfo(f"Stone position updated successfully!")
-                    rospy.loginfo(f"  Expected: [{expected_pos[0]:.3f}, {expected_pos[1]:.3f}]")
-                    rospy.loginfo(f"  Received: [{current_pos[0]:.3f}, {current_pos[1]:.3f}]")
-                    rospy.loginfo(f"  Position difference: {pos_diff:.3f}m")
                     return
             
             # Check timeout
             if (rospy.Time.now() - start_time).to_sec() > timeout:
-                rospy.logwarn(f"Timeout waiting for stone position update after {timeout}s")
-                if 'stone' in self.stone_positions:
-                    current_pos = self.stone_positions['stone']['position']
-                    rospy.logwarn(f"  Expected: [{expected_pos[0]:.3f}, {expected_pos[1]:.3f}]")
-                    rospy.logwarn(f"  Still getting: [{current_pos[0]:.3f}, {current_pos[1]:.3f}]")
                 break
             
             rospy.sleep(0.1)
@@ -301,7 +279,6 @@ class FrankaImpedanceGraspingController:
                 'position': position.copy(),
                 'orientation': quaternion.copy()
             }
-            rospy.loginfo(f"Home position set: {position}")
             self.robot_state_received = True
     
     def model_states_callback(self, msg):
@@ -355,7 +332,6 @@ class FrankaImpedanceGraspingController:
         Returns:
             bool: True if successful, False if timeout
         """
-        rospy.loginfo(f"Moving to position: {target_position}")
         
         # Select appropriate tolerance
         tolerance = self.lift_pose_tolerance if use_lift_tolerance else self.pose_tolerance
@@ -371,12 +347,45 @@ class FrankaImpedanceGraspingController:
                 pos_error = np.linalg.norm(np.array(target_position) - self.current_pose['position'])
                 
                 if pos_error < tolerance:
-                    rospy.loginfo(f"Target reached with error: {pos_error:.4f}m")
                     return True
             
             # Check timeout
             if (rospy.Time.now() - start_time).to_sec() > timeout:
-                rospy.logwarn(f"Movement timeout after {timeout}s, current error: {pos_error:.4f}m")
+                return False
+            
+            self.control_rate.sleep()
+        
+        return False
+
+    def move_to_pose_with_tolerance(self, target_position, target_orientation, custom_tolerance, timeout=10.0):
+        """
+        Move to target pose using impedance control with custom tolerance
+        
+        Args:
+            target_position: [x, y, z] in meters
+            target_orientation: [x, y, z, w] quaternion
+            custom_tolerance: custom position tolerance in meters
+            timeout: maximum time to wait for convergence
+        
+        Returns:
+            bool: True if successful, False if timeout
+        """
+        
+        start_time = rospy.Time.now()
+        
+        while not rospy.is_shutdown():
+            # Send equilibrium pose command
+            self.send_equilibrium_pose(target_position, target_orientation)
+            
+            # Check if we've reached the target
+            if self.current_pose is not None:
+                pos_error = np.linalg.norm(np.array(target_position) - self.current_pose['position'])
+                
+                if pos_error < custom_tolerance:
+                    return True
+            
+            # Check timeout
+            if (rospy.Time.now() - start_time).to_sec() > timeout:
                 return False
             
             self.control_rate.sleep()
@@ -385,7 +394,6 @@ class FrankaImpedanceGraspingController:
 
     def open_gripper(self, width=0.08):
         """Open gripper to specified width"""
-        rospy.loginfo(f"Opening gripper to {width}m")
         
         goal = MoveGoal()
         goal.width = width
@@ -395,10 +403,8 @@ class FrankaImpedanceGraspingController:
         result = self.gripper_move_client.wait_for_result(timeout=rospy.Duration(5.0))
         
         if result:
-            rospy.loginfo("Gripper opened successfully")
             return True
         else:
-            rospy.logwarn("Failed to open gripper")
             return False
 
     def close_gripper(self, width=0.035, force=15.0):
@@ -407,8 +413,6 @@ class FrankaImpedanceGraspingController:
         Stone dimensions: 0.025 x 0.032 x 0.064m
         Gripper width should be > stone width for proper grasping
         """
-        rospy.loginfo(f"Closing gripper to width {width}m with force {force}N")
-        rospy.loginfo(f"Stone dimensions: 25x32x64mm, gripper targeting {width*1000:.1f}mm width")
         
         goal = GraspGoal()
         goal.width = width  # 35mm width - larger than stone's 25mm for proper contact
@@ -421,10 +425,8 @@ class FrankaImpedanceGraspingController:
         result = self.gripper_grasp_client.wait_for_result(timeout=rospy.Duration(5.0))
         
         if result:
-            rospy.loginfo("Gripper closed successfully")
             return True
         else:
-            rospy.logwarn("Failed to close gripper")
             return False
 
     def get_stones_info(self):
@@ -442,16 +444,10 @@ class FrankaImpedanceGraspingController:
     def get_stone_target_positions(self, stone_name):
         """Calculate target positions for grasping a specific stone"""
         if stone_name not in self.stone_positions:
-            rospy.logerr(f"Stone {stone_name} not found!")
             return None
             
         stone_pos = self.stone_positions[stone_name]['position']
         stone_orient = self.stone_positions[stone_name]['orientation']
-        
-        rospy.loginfo(f"Stone '{stone_name}' position in robot frame: {stone_pos}")
-        if 'world_position' in self.stone_positions[stone_name]:
-            world_pos = self.stone_positions[stone_name]['world_position']
-            rospy.loginfo(f"Stone '{stone_name}' position in world frame: {world_pos}")
         
         # Define grasp approach and movement parameters according to user requirements
         approach_height = 0.08  # 8cm above stone (reduced for workspace limits)
@@ -474,10 +470,6 @@ class FrankaImpedanceGraspingController:
         place_position = [stone_pos[0] + place_offset[0], stone_pos[1] + place_offset[1], stone_pos[2] + approach_height]
         place_down_position = [stone_pos[0] + place_offset[0], stone_pos[1] + place_offset[1], stone_pos[2] + approach_height - grasp_descent]
         
-        rospy.loginfo(f"Path planning:")
-        rospy.loginfo(f"  Stone center: z = {stone_pos[2]:.3f}")
-        rospy.loginfo(f"  Above stone (10cm): z = {above_stone_position[2]:.3f}")
-        rospy.loginfo(f"  Grasp position (down {grasp_descent:.3f}m): z = {grasp_position[2]:.3f}")
         
         # Use downward pointing orientation for grasping
         grasp_orientation = tft.quaternion_from_euler(np.pi, 0, 0)  # Point downward
@@ -492,137 +484,123 @@ class FrankaImpedanceGraspingController:
         }
     
     def return_to_home(self):
-        """Return robot to home position"""
+        """Return robot to home position with custom tolerance"""
         if self.home_position is None:
-            rospy.logerr("Home position not set!")
             return False
-            
-        rospy.loginfo("Moving to home position")
         home_pos = self.home_position['position']
         home_orient = self.home_position['orientation']
         
-        return self.move_to_pose([home_pos[0], home_pos[1], home_pos[2]], home_orient)
+        # Use custom home tolerance for better success rate
+        return self.move_to_pose_with_tolerance([home_pos[0], home_pos[1], home_pos[2]], 
+                                               home_orient, self.home_tolerance)
     
     def execute_pick_and_place_sequence(self):
         """Execute a complete pick and place sequence with 8-phase recording"""
-        rospy.loginfo("Starting 8-phase pick and place sequence with automatic recording")
         
         try:
             # Phase 0: Stone Generation
-            rospy.loginfo("Phase 0: Generating stone at new random position")
             self.publish_phase(0)
             
             # Always delete existing stones first to ensure clean slate
-            rospy.loginfo("Clearing any existing stones for new random position")
             try:
                 # Try to delete stone model (may not exist, which is fine)
                 delete_response = self.delete_model_srv('stone')
                 if delete_response.success:
-                    rospy.loginfo("Existing stone deleted successfully")
+                    pass
                 else:
-                    rospy.loginfo(f"Stone deletion response: {delete_response.status_message}")
+                    pass
                 rospy.sleep(1.5)  # Wait for deletion to complete
             except Exception as e:
-                rospy.loginfo(f"No existing stone to delete (expected for first run): {e}")
+                pass
             
             # Always spawn new stone at random location within 15cm circle
-            rospy.loginfo("Spawning new stone at random position within 15cm circle")
             max_attempts = 3
             for attempt in range(max_attempts):
                 if self.spawn_new_stone_random():
-                    rospy.loginfo(f"Stone spawned successfully on attempt {attempt + 1}")
                     break
-                else:
-                    rospy.logwarn(f"Stone spawn attempt {attempt + 1} failed")
                     if attempt < max_attempts - 1:
-                        rospy.sleep(1.0)  # Wait before retry
+                        rospy.sleep(0.5)  # Wait before retry
             else:
-                rospy.logerr("Failed to spawn stone after multiple attempts")
                 return False
             rospy.sleep(2.0)  # Wait for spawn to complete and physics to settle
                 
             # Verify stone generation
             stones = self.get_stones_info()
             if not stones:
-                rospy.logerr("No stones available after spawning")
                 return False
                 
             stone_info = stones[0]  # Use the first stone
-            rospy.loginfo(f"New stone spawned at random position: {stone_info['position']}")
             
             # Phase 1: Record Start (triggers automatic recording in dataset recorder)
-            rospy.loginfo("Phase 1: Stone detected, starting recording")
             self.publish_phase(1)
-            rospy.sleep(0.5)  # Brief pause for recording to start
+            rospy.sleep(0.25)  # Brief pause for recording to start
             
             # Calculate approach targets based on stone position
             targets = self.get_stone_target_positions(stone_info['name'])
             
             # Phase 2: Open gripper
-            rospy.loginfo("Phase 2: Opening gripper")
             self.publish_phase(2)
             if not self.open_gripper():
-                rospy.logerr("Failed to open gripper")
                 return False
-            rospy.sleep(1.0)
+            rospy.sleep(0.5)
             
             # Phase 3: Move to 10cm above stone
-            rospy.loginfo("Phase 3: Moving to 10cm above stone")
             self.publish_phase(3)
             if not self.move_to_pose(targets['above_stone'], targets['orientation']):
-                rospy.logerr("Failed to reach position above stone")
                 return False
-            rospy.sleep(1.0)
+            rospy.sleep(0.5)
             
             # Phase 4: Move down to grasp position
-            rospy.loginfo("Phase 4: Moving down to grasp position")
             self.publish_phase(4)
             if not self.move_to_pose(targets['grasp'], targets['orientation']):
-                rospy.logerr("Failed to reach grasp position")
                 return False
-            rospy.sleep(1.0)
+            rospy.sleep(0.5)
             
             # Phase 5: Close gripper (grasp)
-            rospy.loginfo("Phase 5: Grasping stone")
             self.publish_phase(5)
             if not self.close_gripper():
-                rospy.logerr("Failed to grasp stone")
                 return False
-            rospy.sleep(2.0)  # Wait for grasp to settle
+            rospy.sleep(1.0)  # Wait for grasp to settle
             
             # Phase 6: Lift object
-            rospy.loginfo("Phase 6: Lifting stone")
             self.publish_phase(6)
             if not self.move_to_pose(targets['lift'], targets['orientation'], timeout=20.0, use_lift_tolerance=True):
-                rospy.logerr("Failed to lift stone")
                 return False
-            rospy.sleep(1.0)
+            rospy.sleep(0.5)
             
             # Phase 7: Return to home position
-            rospy.loginfo("Phase 7: Returning to home position with stone")
             self.publish_phase(7)
             if not self.return_to_home():
-                rospy.logerr("Failed to return to home position")
                 return False
-            rospy.sleep(1.0)
+            rospy.sleep(0.5)
             
-            # Phase 8: Record End (triggers automatic save in dataset recorder)
-            rospy.loginfo("Phase 8: Task completed, ending recording")
-            self.publish_phase(8)
-            rospy.sleep(1.0)  # Wait for episode to be saved
+            # Delete stone to complete the task (stone deletion triggers recording end)
+            try:
+                delete_response = self.delete_model_srv('stone')
+                if delete_response.success:
+                    pass
+                else:
+                    pass
+                rospy.sleep(0.5)  # Wait for deletion to complete
+                
+                # Phase 8: Record End (triggered by stone deletion completion)
+                self.publish_phase(8)
+                rospy.sleep(0.5)  # Wait for episode to be saved
+                
+            except Exception as e:
+                # Still trigger recording end even if deletion failed
+                self.publish_phase(8)
+                rospy.sleep(0.5)
             
-            rospy.loginfo("8-phase pick and place sequence completed successfully!")
             return True
             
         except Exception as e:
-            rospy.logerr(f"Exception during pick and place: {e}")
             # Emergency reset to phase 0
             self.publish_phase(0)
             return False
 
     def run_demo(self):
         """Run demonstration sequence"""
-        rospy.loginfo("Starting Franka impedance control demonstration")
         
         # Wait a bit for everything to initialize
         rospy.sleep(2.0)
@@ -631,33 +609,27 @@ class FrankaImpedanceGraspingController:
         success = self.execute_pick_and_place_sequence()
         
         if success:
-            rospy.loginfo("Demonstration completed successfully!")
             
             # Reset for continuous loop: clear gripper and spawn new stone
-            rospy.loginfo("Preparing for continuous loop...")
-            rospy.sleep(1.0)
+            rospy.sleep(0.5)
             
             # Delete stone from gripper and spawn new one for continuous mode
             try:
-                rospy.loginfo("Clearing demonstration stone from gripper")
                 self.delete_model_srv('stone')
-                rospy.sleep(1.0)
+                rospy.sleep(0.5)
                 
-                rospy.loginfo("Spawning new stone for continuous mode")
                 self.spawn_new_stone_random()
                 rospy.sleep(2.0)
                 
-                rospy.loginfo("Opening gripper for continuous mode")
                 self.open_gripper()
-                rospy.sleep(1.0)
+                rospy.sleep(0.5)
                 
             except Exception as e:
-                rospy.logwarn(f"Failed to prepare for continuous mode: {e}")
+                pass
         else:
-            rospy.logwarn("Demonstration failed!")
+            pass
         
         # Keep node alive
-        rospy.loginfo("Demo complete. Starting continuous loop...")
         
         # Continuous loop for repeated grasping
         self.run_continuous_demo()
@@ -665,11 +637,9 @@ class FrankaImpedanceGraspingController:
 
     def reset_simulation(self):
         """Reset robot pose and spawn new stone at random position"""
-        rospy.loginfo("Resetting simulation for next iteration...")
         
         try:
             # 1. Reset robot to home position (keeping stone in gripper)
-            rospy.loginfo("Resetting robot to home position")
             if self.home_position is not None:
                 self.move_to_pose(
                     self.home_position['position'], 
@@ -678,35 +648,27 @@ class FrankaImpedanceGraspingController:
                 )
             
             # 2. Move existing stone to new random position (more reliable than delete+spawn)
-            rospy.loginfo("Moving stone to new random position")
             success = self.move_stone_to_random_position()
             if not success:
-                rospy.logerr("Failed to move stone, trying delete+spawn...")
                 try:
                     self.delete_model_srv('stone')
                     rospy.sleep(1.5)  # Longer delay for proper cleanup
                     success = self.spawn_new_stone_random()
                     if not success:
-                        rospy.logerr("Failed to spawn new stone")
                         return False
                 except Exception as e:
-                    rospy.logerr(f"Failed fallback spawn: {e}")
                     return False
             
             # 4. Wait for Gazebo model states to update with new stone position
-            rospy.loginfo("Waiting for model states to update...")
             self.wait_for_new_stone_position()
-            rospy.sleep(1.0)  # Additional physics settling time
+            rospy.sleep(0.5)  # Additional physics settling time
             
             # 5. Open gripper (now empty since old stone was deleted)
-            rospy.loginfo("Opening gripper for next iteration")
             self.open_gripper()
             
-            rospy.loginfo("Simulation reset complete")
             return True
             
         except Exception as e:
-            rospy.logerr(f"Failed to reset simulation: {e}")
             return False
     
     
@@ -720,7 +682,7 @@ class FrankaImpedanceGraspingController:
         center_x, center_y = self.initial_stone_center[0], self.initial_stone_center[1]
         
         # Generate random position within 15cm circle of fixed center  
-        radius_max = 0.15  # 15cm radius
+        radius_max = 0.1  # 15cm radius
         
         # Use sqrt for uniform distribution within circle (not just circumference)
         radius = radius_max * np.sqrt(random.uniform(0.01, 1.0))  # Uniform distribution within circle
@@ -733,10 +695,6 @@ class FrankaImpedanceGraspingController:
         rand_x = np.clip(rand_x, 0.35, 0.65)  # Tighter bounds to ensure reachability
         rand_y = np.clip(rand_y, -0.15, 0.15)
         
-        rospy.loginfo(f"Random stone position generation:")
-        rospy.loginfo(f"  Fixed center: [{center_x:.3f}, {center_y:.3f}]")
-        rospy.loginfo(f"  Radius: {radius:.3f}m (max {radius_max:.3f}m), Angle: {angle:.2f}rad")
-        rospy.loginfo(f"  Generated position: [{rand_x:.3f}, {rand_y:.3f}, {z_spawn:.3f}]")
         
         # Store new position for next iteration
         self.last_stone_position = [rand_x, rand_y, z_spawn]
@@ -746,20 +704,17 @@ class FrankaImpedanceGraspingController:
         world_y = rand_y + 0.0     # robot_y + robot_world_y  
         world_z = z_spawn
         
-        rospy.loginfo(f"  World coordinates: [{world_x:.3f}, {world_y:.3f}, {world_z:.3f}]")
         
         return rand_x, rand_y, z_spawn, world_x, world_y, world_z
     
     def spawn_new_stone_random(self):
         """Spawn new stone at random position"""
         rand_x, rand_y, z_spawn, world_x, world_y, world_z = self._generate_random_stone_position()
-        rospy.loginfo("Spawning new stone at random position")
         return self._spawn_stone_at_position(world_x, world_y, world_z, rand_x, rand_y, z_spawn)
     
     def move_stone_to_random_position(self):
         """Move existing stone to new random position using SetModelState service"""
         rand_x, rand_y, z_spawn, world_x, world_y, world_z = self._generate_random_stone_position()
-        rospy.loginfo("Moving stone to new random position")
         
         try:
             from gazebo_msgs.msg import ModelState
@@ -787,15 +742,11 @@ class FrankaImpedanceGraspingController:
             response = self.set_model_state_srv(model_state)
             
             if response.success:
-                rospy.loginfo(f"Stone moved to world: [{world_x:.3f}, {world_y:.3f}, {world_z:.3f}]")
-                rospy.loginfo(f"Stone robot-relative: [{rand_x:.3f}, {rand_y:.3f}, {z_spawn:.3f}]")
                 return True
             else:
-                rospy.logerr(f"Failed to move stone: {response.status_message}")
                 return False
                 
         except Exception as e:
-            rospy.logerr(f"Exception during stone movement: {e}")
             return False
         
     def _spawn_stone_at_position(self, world_x, world_y, world_z, robot_x, robot_y, robot_z):
@@ -808,7 +759,6 @@ class FrankaImpedanceGraspingController:
             with open(stone_model_path, 'r') as sdf_file:
                 stone_sdf = sdf_file.read()
         except IOError as e:
-            rospy.logerr(f"Failed to read stone model file: {e}")
             return False
         
         try:
@@ -829,15 +779,11 @@ class FrankaImpedanceGraspingController:
             )
             
             if response.success:
-                rospy.loginfo(f"Stone spawned at world: [{world_x:.3f}, {world_y:.3f}, {world_z:.3f}]")
-                rospy.loginfo(f"Stone robot-relative: [{robot_x:.3f}, {robot_y:.3f}, {robot_z:.3f}]")
                 return True
             else:
-                rospy.logerr(f"Failed to spawn stone: {response.status_message}")
                 return False
                 
         except Exception as e:
-            rospy.logerr(f"Exception during stone spawning: {e}")
             return False
 
     
@@ -846,7 +792,6 @@ class FrankaImpedanceGraspingController:
         iteration = 1
         
         while not rospy.is_shutdown():
-            rospy.loginfo(f"\n=== Starting grasping iteration {iteration} ===")
             
             # Wait for model states to update after reset
             rospy.sleep(2.0)
@@ -855,20 +800,17 @@ class FrankaImpedanceGraspingController:
             success = self.execute_pick_and_place_sequence()
             
             if success:
-                rospy.loginfo(f"Iteration {iteration} completed successfully!")
+                pass
             else:
-                rospy.logwarn(f"Iteration {iteration} failed!")
+                pass
             
             # Wait before reset
-            rospy.loginfo("Waiting 3 seconds before reset...")
             rospy.sleep(3.0)
             
             # Reset simulation for next iteration
             if self.reset_simulation():
                 iteration += 1
-                rospy.loginfo("Ready for next iteration")
             else:
-                rospy.logerr("Reset failed, stopping continuous demo")
                 break
             
             # Wait between iterations
@@ -877,7 +819,6 @@ class FrankaImpedanceGraspingController:
     def handle_grasp_trigger(self, req):
         """Service callback to trigger a single grasp sequence"""
         try:
-            rospy.loginfo("8-phase grasp sequence triggered via service")
             success = self.execute_pick_and_place_sequence()
             
             if success:
@@ -885,13 +826,12 @@ class FrankaImpedanceGraspingController:
                 rospy.sleep(2.0)  # Wait for any pending operations
                 
                 # Delete any existing stones to ensure clean state for next episode
-                rospy.loginfo("Cleaning up stones for next episode")
                 try:
                     self.delete_model_srv('stone')
-                    rospy.sleep(1.0)  # Wait for deletion to complete
-                    rospy.loginfo("Stone cleanup completed")
+                    rospy.sleep(0.5)  # Wait for deletion to complete
+                    pass
                 except Exception as cleanup_error:
-                    rospy.logwarn(f"Stone cleanup failed (may not exist): {cleanup_error}")
+                    pass
                 
                 # Reset to phase 0 for next sequence
                 self.publish_phase(0)
@@ -906,7 +846,6 @@ class FrankaImpedanceGraspingController:
                 return TriggerResponse(success=False, message="8-phase grasp sequence failed")
                 
         except Exception as e:
-            rospy.logerr(f"Error in grasp sequence: {e}")
             # Clean up and reset on exception
             try:
                 self.delete_model_srv('stone')
@@ -918,12 +857,11 @@ class FrankaImpedanceGraspingController:
 def main():
     try:
         controller = FrankaImpedanceGraspingController()
-        rospy.loginfo("Franka controller initialized. Waiting for service calls...")
         rospy.spin()  # Keep node alive to handle service calls
     except rospy.ROSInterruptException:
-        rospy.loginfo("Controller interrupted")
+        pass
     except Exception as e:
-        rospy.logerr(f"Controller error: {str(e)}")
+        pass
 
 if __name__ == '__main__':
     main()

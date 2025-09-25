@@ -73,11 +73,39 @@
     <param name="rate" value="30"/>
   </node>
 
-  <!-- ACT Dataset Collection Camera - Top View -->
-  <!-- Camera positioned at (0, 0.6, 0.8) looking down at table, matching ACT setup -->
+  <!-- ACT Dataset Collection Cameras - Five Angle Setup -->
+  
+  <!-- 1. Top Camera: Main training camera (俯视角度) - positioned above table -->
   <node pkg="gazebo_ros" type="spawn_model" name="top_camera_spawner"
-        args="-sdf -file $(find franka_gazebo)/models/top_camera/model.sdf -model top_camera -x 0 -y 0.6 -z 0.8" 
+        args="-sdf -file $(find franka_gazebo)/models/generic_camera/model.sdf -model top_camera 
+              -x 0.3 -y 0 -z 0.9 -R 0 -P 2.1 -Y 0" 
         respawn="false" />
+
+  <!-- 2. Angle Camera: Diagonal view (斜角观察) - positioned at diagonal angle -->
+  <!--
+  <node pkg="gazebo_ros" type="spawn_model" name="angle_camera_spawner"
+        args="-sdf -file $(find franka_gazebo)/models/generic_camera/model.sdf -model angle_camera 
+              -x 0.016428 -y -0.6 -z 0.6 -R 0 -P 0.5 -Y 1.57" 
+        respawn="false" />
+
+  3. Left Pillar Camera: Left side view (左侧面) - positioned on left side
+  <node pkg="gazebo_ros" type="spawn_model" name="left_pillar_camera_spawner"
+        args="-sdf -file $(find franka_gazebo)/models/generic_camera/model.sdf -model left_pillar_camera 
+              -x -0.5 -y -0.4 -z 0.6 -R 0 -P 0 -Y 0.7" 
+        respawn="false" />
+
+  4. Right Pillar Camera: Right side view (右侧面) - positioned on right side
+  <node pkg="gazebo_ros" type="spawn_model" name="right_pillar_camera_spawner"
+        args="-sdf -file $(find franka_gazebo)/models/generic_camera/model.sdf -model right_pillar_camera 
+              -x 0.5 -y -0.4 -z 0.6 -R 0 -P 0 -Y -0.7" 
+        respawn="false" />
+
+  5. Front Close Camera: Robot close-up view (机械臂特写) - positioned for gripper closeup
+  <node pkg="gazebo_ros" type="spawn_model" name="front_close_camera_spawner"
+        args="-sdf -file $(find franka_gazebo)/models/generic_camera/model.sdf -model front_close_camera 
+              -x 0.016428 -y -0.8 -z 0.4 -R 0 -P 0.3 -Y 1.57" 
+        respawn="false" />
+  -->
 
   <!-- Launch the Impedance grasping controller node -->
   <node name="franka_impedance_grasping_controller" pkg="frk_act_unified" type="franka_impedance_grasping_controller.py" output="screen" />

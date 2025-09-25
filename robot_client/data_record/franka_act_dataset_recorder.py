@@ -136,11 +136,18 @@ class FrankaACTDatasetRecorder:
         self.save_dir = save_dir
         os.makedirs(save_dir, exist_ok=True)
         
+        
         # Recording state
         self.current_episode = self._get_next_episode_number()
         self.recording = False
         self.current_phase = 0
         self.data_lock = threading.Lock()
+        
+        # Recording timestamps for analysis
+        self.recording_start_time = None
+        self.recording_end_time = None
+        self.last_video_frame_time = None
+        self.last_robot_data_time = None
         
         # ACT data buffers
         self._reset_buffers()
@@ -155,7 +162,8 @@ class FrankaACTDatasetRecorder:
         self.bridge = CvBridge()
         self._init_subscribers()
         
-        rospy.loginfo(f"Franka ACT Dataset Recorder initialized - Next episode: {self.current_episode}")
+    
+    
     
     def _get_next_episode_number(self):
         """Get the next episode number based on existing files"""
@@ -205,12 +213,16 @@ class FrankaACTDatasetRecorder:
         """Store camera images in ACT format"""
         if not self.recording:
             return
+        
         try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, "rgb8")
+            # Convert ROS image to OpenCV
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
             with self.data_lock:
                 self.observations['images']['top'].append(cv_image)
+                # Update last video frame timestamp
+                self.last_video_frame_time = datetime.now()
         except Exception as e:
-            rospy.logerr(f"Image processing error: {e}")
+            pass
     
     def _franka_state_callback(self, msg):
         """Process Franka state and extract end-effector pose"""
@@ -219,31 +231,27 @@ class FrankaACTDatasetRecorder:
         position = T_matrix[:3, 3]
         quaternion = tft.quaternion_from_matrix(T_matrix)
         
-        # Extract end-effector twist (velocities)
-        ee_twist = np.array(msg.O_dP_EE_d[:6])  # [dx,dy,dz,wx,wy,wz]
-        
+        # Update current state
         with self.data_lock:
-            # Update current Cartesian state
-            self.current_qpos[:3] = position  # [x, y, z]
-            self.current_qpos[3:7] = quaternion  # [qx, qy, qz, qw]
-            self.current_qvel[:6] = ee_twist  # [dx,dy,dz,wx,wy,wz]
+            self.current_qpos[:3] = position
+            self.current_qpos[3:7] = quaternion
             
-            # Store pose for reference
-            self.current_pose = {
-                'position': position,
-                'orientation': quaternion
-            }
+            # Zero velocity for static poses (actual velocity calculation would require differentiation)
+            self.current_qvel[:7] = 0.0
             
             if self.recording:
-                # Store observations in Cartesian space
-                qpos_obs = self.current_qpos.copy()
-                qvel_obs = self.current_qvel.copy()
-                self.observations['qpos'].append(qpos_obs)
-                self.observations['qvel'].append(qvel_obs)
+                # Store observation
+                self.observations['qpos'].append(self.current_qpos.copy())
+                self.observations['qvel'].append(self.current_qvel.copy())
                 
-                # Generate action (for demonstration: action = current pose)
-                self.actions.append(qpos_obs.copy())
+                # Store corresponding action (same as current pose for recording)
+                self.actions.append(self.current_qpos.copy())
+                
+                # Store timestamp
                 self.timestamps.append(rospy.Time.now().to_sec())
+                
+                # Update last robot data timestamp
+                self.last_robot_data_time = datetime.now()
     
     
     def _gripper_callback(self, msg):
@@ -261,37 +269,20 @@ class FrankaACTDatasetRecorder:
         if new_phase == 1 and self.current_phase != 1:
             # Start recording when stone is detected and recording begins (phase 1)
             if not self.recording:
-                rospy.loginfo("Phase 1 detected: Stone generated, starting episode recording automatically")
                 self.start_recording()
                 
         elif new_phase == 8 and self.current_phase == 7:
             # Auto-save when task completed and returning to record end (phase 7->8)
             if self.recording:
-                rospy.loginfo("Phase 8 detected: Task completed, ending episode recording and saving")
                 self.stop_recording()
                 self.save_current_episode()
         
-        # Log phase transitions for debugging
-        if new_phase != self.current_phase:
-            phase_names = {
-                0: "Stone Generate",
-                1: "Record Start", 
-                2: "Open Gripper",
-                3: "Move Above Target",
-                4: "Descend to Grasp",
-                5: "Close Gripper",
-                6: "Lift Object",
-                7: "Return Home",
-                8: "Record End"
-            }
-            rospy.loginfo(f"Phase transition: {self.current_phase} -> {new_phase} ({phase_names.get(new_phase, 'Unknown')})")
         
         self.current_phase = new_phase
     
     def _episode_control_callback(self, msg):
         """Handle manual recording control commands (fallback)"""
         command = msg.data.lower()
-        rospy.loginfo(f"Manual episode control: {command}")
         
         if command == "start_episode":
             self.start_recording()
@@ -304,26 +295,27 @@ class FrankaACTDatasetRecorder:
             with self.data_lock:
                 self.recording = False
                 self._reset_buffers()
-            rospy.loginfo("Episode reset without saving")
     
     def start_recording(self):
         """Start recording new episode"""
         with self.data_lock:
             self.recording = True
+            self.recording_start_time = datetime.now()
+            self.last_video_frame_time = None
+            self.last_robot_data_time = None
             self._reset_buffers()
-        rospy.loginfo(f"Started recording episode {self.current_episode}")
     
     def stop_recording(self):
         """Stop recording"""
         with self.data_lock:
             self.recording = False
-        rospy.loginfo(f"Stopped recording episode {self.current_episode}")
+            self.recording_end_time = datetime.now()
+        
     
     def save_current_episode(self):
         """Save current episode to HDF5 file in ACT format"""
         with self.data_lock:
             if not self.observations['qpos']:
-                rospy.logwarn("No episode data to save")
                 return
                 
             # Synchronize data streams
@@ -335,12 +327,12 @@ class FrankaACTDatasetRecorder:
             )
             
             if min_length == 0:
-                rospy.logwarn("No synchronized data to save")
                 return
         
         # Generate filename and save
         filename = f"episode_{self.current_episode:06d}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.hdf5"
         filepath = os.path.join(self.save_dir, filename)
+        
         
         try:
             with h5py.File(filepath, 'w', rdcc_nbytes=1024**2*2) as root:
@@ -360,11 +352,9 @@ class FrankaACTDatasetRecorder:
                 
                 # Actions
                 root.create_dataset('action', data=np.array(self.actions[:min_length]), dtype=np.float64)
-                
-            rospy.loginfo(f"Saved episode {self.current_episode} to {filepath}")
+            
             
         except Exception as e:
-            rospy.logerr(f"Error saving episode: {e}")
             return
             
         self.current_episode += 1
@@ -388,26 +378,12 @@ def main():
     save_dir = rospy.get_param('~save_dir', '/home/jason/ws/catkin_ws/src/act_data')
     recorder = FrankaACTDatasetRecorder(save_dir=save_dir)
     
-    # Status reporting
-    def publish_status(event):
-        status = recorder.get_status()
-        rospy.loginfo(f"Recording: {status['recording']}, Episode: {status['episode']}, "
-                     f"Phase: {status['phase']}, Data points: {status['data_length']}")
     
-    status_timer = rospy.Timer(rospy.Duration(10.0), publish_status)
-    
-    # Startup messages
-    rospy.loginfo("Franka ACT Dataset Recorder started")
-    rospy.loginfo(f"Save directory: {save_dir}")
-    rospy.loginfo("Episode control commands:")
-    rospy.loginfo("  start_episode, stop_episode, save_episode")
     
     try:
         rospy.spin()
     except KeyboardInterrupt:
-        rospy.loginfo("Shutting down recorder")
-    finally:
-        status_timer.shutdown()
+        pass
 
 
 if __name__ == '__main__':
