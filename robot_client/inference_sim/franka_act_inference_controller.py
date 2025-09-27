@@ -572,7 +572,7 @@ class FrankaACTInferenceController:
             return TriggerResponse(success=False, message=f"Stop failed: {str(e)}")
     
     def _generate_random_stone_position(self):
-        """Generate random stone position within 15cm circle of fixed center"""
+        """Generate random stone position within 10cm circle of fixed center (matching training)"""
         z_table = 0.4  # Table surface height
         z_stone_half = 0.032  # Half of stone height (0.064/2)
         z_spawn = z_table + z_stone_half  # Place stone on table surface
@@ -580,8 +580,8 @@ class FrankaACTInferenceController:
         # Always use fixed initial center for randomization
         center_x, center_y = self.initial_stone_center[0], self.initial_stone_center[1]
         
-        # Generate random position within 15cm circle of fixed center  
-        radius_max = 0.15  # 15cm radius
+        # Generate random position within 10cm circle of fixed center (matching training)
+        radius_max = 0.1  # 10cm radius (same as training)
         
         # Use sqrt for uniform distribution within circle (not just circumference)
         radius = radius_max * np.sqrt(random.uniform(0.01, 1.0))  # Uniform distribution within circle

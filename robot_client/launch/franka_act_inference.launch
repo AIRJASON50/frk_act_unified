@@ -79,11 +79,14 @@
     <param name="rate" value="30"/>
   </node>
 
-  <!-- ACT Dataset Collection Camera - Top View -->
-  <!-- Camera positioned at (0, 0.6, 0.8) looking down at table, matching ACT setup -->
+  <!-- ACT Dataset Collection Cameras - Matching Training Setup -->
+  <!-- Top camera: positioned at (0, 0.6, 0.8) with rotation (0, 0.785398, 0) -->
   <node pkg="gazebo_ros" type="spawn_model" name="top_camera_spawner"
-        args="-sdf -file $(find franka_gazebo)/models/top_camera/model.sdf -model top_camera -x 0 -y 0.6 -z 0.8" 
+        args="-sdf -file $(find franka_gazebo)/models/generic_camera/model.sdf -model top_camera 
+              -x 0.3 -y 0 -z 0.9 -R 0 -P 2.1 -Y 0" 
         respawn="false" />
+
+
 
   <!-- Launch the ACT Inference Controller -->
   <node name="franka_act_inference_controller" 
