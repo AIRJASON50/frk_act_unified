@@ -21,7 +21,7 @@ COMMUNICATION ARCHITECTURE:
 DATA COLLECTION:
 - Joint positions (qpos): 7-DOF arm + 2-DOF gripper = 9维
 - Joint velocities (qvel): 9维速度数据
-- Camera images: 480x640 RGB图像，base64编码传输
+- Camera images: 640x480 RGB图像，base64编码传输
 - Action execution: 7-DOF pose + gripper命令
 
 CONTROL FLOW:
@@ -335,7 +335,7 @@ class FrankaACTInferenceController:
             # For velocities, use zeros for now (can be improved with twist estimation)
             full_qvel = np.zeros(8)  # [dx,dy,dz,wx,wy,wz,gripper_vel]
             
-            # Prepare camera image
+            # Prepare camera image (resize to match training data: width=640, height=480)
             image_resized = cv2.resize(self.latest_camera_image, (640, 480))
             image_rgb = cv2.cvtColor(image_resized, cv2.COLOR_BGR2RGB)
             
@@ -572,7 +572,7 @@ class FrankaACTInferenceController:
             return TriggerResponse(success=False, message=f"Stop failed: {str(e)}")
     
     def _generate_random_stone_position(self):
-        """Generate random stone position within 10cm circle of fixed center (matching training)"""
+        """Generate random stone position within 10cm circle of fixed center (matching training data)"""
         z_table = 0.4  # Table surface height
         z_stone_half = 0.032  # Half of stone height (0.064/2)
         z_spawn = z_table + z_stone_half  # Place stone on table surface
