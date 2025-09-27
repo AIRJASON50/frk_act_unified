@@ -67,7 +67,8 @@ def extract_video_from_hdf5(hdf5_path, output_dir=None, camera_names=None, fps=3
             for i in range(num_frames):
                 frame = dataset[i]  # Shape: (H, W, 3)
                 
-                # Convert RGB to BGR for OpenCV
+                # Note: HDF5 now contains RGB images (converted during data recording)
+                # OpenCV VideoWriter expects BGR, so convert RGB to BGR
                 frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 video_writer.write(frame_bgr)
                 

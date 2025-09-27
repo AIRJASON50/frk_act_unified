@@ -98,10 +98,10 @@ def main(args):
     if task_name in FRANKA_TASK_CONFIGS:
         task_config = FRANKA_TASK_CONFIGS[task_name]
     else:
-        # 默认配置
+        # 默认配置 - 动态构建数据路径
         task_config = {
-            'dataset_dir': '/home/wujielin/CascadeProjects/data/act_training/datasets/act_0918',
-            'num_episodes': 20,
+            'dataset_dir': os.path.join('/home/wujielin/CascadeProjects/data/act_training/datasets', task_name),
+            'num_episodes': 50,  # 增加episode数量以适应新数据集
             'episode_len': 400,
             'camera_names': ['top']
         }

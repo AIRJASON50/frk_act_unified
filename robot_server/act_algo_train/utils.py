@@ -122,7 +122,9 @@ class EpisodicDataset(torch.utils.data.Dataset):
         # 处理多相机图像
         all_cam_images = []
         for cam_name in self.camera_names:
-            all_cam_images.append(image_dict[cam_name])
+            # HDF5中现在直接存储RGB格式图像（从数据录制器改进后）
+            rgb_image = image_dict[cam_name]  # Already in RGB format
+            all_cam_images.append(rgb_image)
         all_cam_images = np.stack(all_cam_images, axis=0)
 
         # 转换为torch张量并确保数据类型

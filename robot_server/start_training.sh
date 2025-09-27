@@ -29,8 +29,8 @@ NC='\033[0m' # No Color
 
 # Default parameters (完整训练配置)
 TASK_NAME=${1:-"act_data"}  # 使用新的笛卡尔空间数据集
-NUM_EPOCHS=${2:-2000}  # 完整训练epoch数
-BATCH_SIZE=${3:-4}     # 降低batch size适应笛卡尔数据
+NUM_EPOCHS=${2:-15000}  # 完整训练epoch数
+BATCH_SIZE=${3:-64}     # 降低batch size适应笛卡尔数据
 
 # ACT model parameters (based on memory notes)
 HIDDEN_DIM=512
