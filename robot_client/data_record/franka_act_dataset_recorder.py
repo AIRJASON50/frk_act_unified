@@ -237,10 +237,9 @@ class FrankaACTDatasetRecorder:
             return
         
         try:
-            # Convert ROS image to OpenCV BGR format
-            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-            # Convert BGR to RGB for consistency with training/inference pipeline
-            rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+            # Convert ROS image to OpenCV RGB format (Gazebo camera publishes RGB)
+            rgb_image = self.bridge.imgmsg_to_cv2(msg, "rgb8")
+            # Image already in RGB format, no conversion needed
             with self.data_lock:
                 self.observations['images']['top'].append(rgb_image)
                 # Update last video frame timestamp

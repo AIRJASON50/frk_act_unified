@@ -101,7 +101,7 @@ def main(args):
         # 默认配置 - 动态构建数据路径
         task_config = {
             'dataset_dir': os.path.join('/home/wujielin/CascadeProjects/data/act_training/datasets', task_name),
-            'num_episodes': 50,  # 增加episode数量以适应新数据集
+            'num_episodes': 48,  # 0927数据集实际episode数量
             'episode_len': 400,
             'camera_names': ['top']
         }

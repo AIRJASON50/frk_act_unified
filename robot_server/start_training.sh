@@ -15,7 +15,7 @@
 # ./start_training.sh franka_pick_place 2000 4     # 完整参数
 #
 # PATHS:
-# - 数据集: /home/wujielin/CascadeProjects/data/act_training/datasets/act_data (笛卡尔空间数据)
+# - 数据集: /home/wujielin/CascadeProjects/data/act_training/datasets/0927 (最新笛卡尔空间数据)
 # - 模型: /home/wujielin/CascadeProjects/data/act_training/checkpoints
 # - 日志: /home/wujielin/CascadeProjects/data/act_training/logs
 #===============================================================================
@@ -28,7 +28,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default parameters (完整训练配置)
-TASK_NAME=${1:-"act_data"}  # 使用新的笛卡尔空间数据集
+TASK_NAME=${1:-"0927"}  # 使用2025.09.27最新数据集
 NUM_EPOCHS=${2:-15000}  # 完整训练epoch数
 BATCH_SIZE=${3:-64}     # 降低batch size适应笛卡尔数据
 

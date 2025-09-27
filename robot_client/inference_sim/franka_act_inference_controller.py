@@ -308,11 +308,11 @@ class FrankaACTInferenceController:
     def camera_callback(self, msg):
         """Callback for camera image messages"""
         try:
-            # Convert ROS image to OpenCV format
-            cv_image = self.cv_bridge.imgmsg_to_cv2(msg, "bgr8")
+            # Convert ROS image to OpenCV RGB format (Gazebo camera publishes RGB)
+            rgb_image = self.cv_bridge.imgmsg_to_cv2(msg, "rgb8")
             
-            # Store latest image
-            self.latest_camera_image = cv_image
+            # Store latest image in RGB format
+            self.latest_camera_image = rgb_image
             self.image_received = True
             
         except Exception as e:
@@ -336,11 +336,12 @@ class FrankaACTInferenceController:
             full_qvel = np.zeros(8)  # [dx,dy,dz,wx,wy,wz,gripper_vel]
             
             # Prepare camera image (resize to match training data: width=640, height=480)
-            image_resized = cv2.resize(self.latest_camera_image, (640, 480))
-            image_rgb = cv2.cvtColor(image_resized, cv2.COLOR_BGR2RGB)
+            # Image is already in RGB format from camera_callback
+            image_rgb = cv2.resize(self.latest_camera_image, (640, 480))
             
-            # Encode image to base64
-            _, img_encoded = cv2.imencode('.jpg', image_rgb)
+            # Encode image to base64 (cv2.imencode expects BGR format)
+            image_bgr_for_encoding = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+            _, img_encoded = cv2.imencode('.jpg', image_bgr_for_encoding)
             img_b64 = base64.b64encode(img_encoded.tobytes()).decode('utf-8')
             
             # Prepare data dictionary

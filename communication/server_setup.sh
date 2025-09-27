@@ -9,7 +9,7 @@ SERVER_IP="10.16.49.124"        # 主网卡IP，局域网可访问
 SERVER_PORT="5555"              # AgentLace固定端口
 
 # 可选参数
-MODEL_PATH=${1:-"/home/wujielin/CascadeProjects/data/act_training/checkpoints/franka_pick_place"}
+MODEL_PATH=${1:-"/home/wujielin/CascadeProjects/data/act_training/checkpoints/0927"}
 MODEL_SELECTION=${2:-"best"}  # auto, best, latest, 或具体文件名
 
 # 智能GPU选择逻辑：优先使用GPU 2、3，选择占用最小的
@@ -94,6 +94,10 @@ export CUDA_VISIBLE_DEVICES=$GPU_ID
 PROJECT_ROOT="/home/wujielin/CascadeProjects/projects/ws/frk_act_unified"
 export PYTHONPATH="${PYTHONPATH}:${PROJECT_ROOT}:${PROJECT_ROOT}/communication/agentlace"
 
+# 激活conda环境
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate aloha
+
 # 检查AgentLace依赖
 python3 -c "
 try:
@@ -106,8 +110,36 @@ except ImportError:
 # 创建日志目录
 mkdir -p logs
 
+# 定义优雅关闭函数
+cleanup() {
+    echo ""
+    echo "🛑 收到终止信号，正在优雅关闭推理服务器..."
+    if [[ ! -z $SERVER_PID ]]; then
+        echo "   停止推理服务器进程 (PID: $SERVER_PID)"
+        kill -TERM $SERVER_PID 2>/dev/null
+        wait $SERVER_PID 2>/dev/null
+    fi
+    
+    # 确保端口释放
+    echo "   释放端口 ${SERVER_PORT}..."
+    sleep 1
+    
+    # 检查端口状态
+    if netstat -tulpn | grep -q "${SERVER_PORT}"; then
+        echo "⚠️  端口 ${SERVER_PORT} 仍被占用，强制清理..."
+        lsof -ti:${SERVER_PORT} | xargs -r kill -9 2>/dev/null
+    fi
+    
+    echo "✅ 推理服务器已成功关闭"
+    exit 0
+}
+
+# 注册信号处理函数
+trap cleanup SIGINT SIGTERM
+
 # 启动AgentLace推理服务器
 echo "🌐 启动AgentLace推理服务器..."
+echo "🎯 按Ctrl+C优雅关闭服务器"
 # 根据模型选择参数设置具体模型路径
 if [ "$MODEL_SELECTION" != "auto" ]; then
     if [ "$MODEL_SELECTION" = "best" ]; then
